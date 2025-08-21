@@ -46,7 +46,7 @@ func TestValidateQuery(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := ValidateQuery(tt.query, tt.dialect)
-			
+
 			if tt.expectError {
 				assert.Error(t, err)
 				if tt.errorType == "validation" {
@@ -106,7 +106,7 @@ func TestValidateColumnName(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := ValidateColumnName(tt.column)
-			
+
 			if tt.expectError {
 				assert.Error(t, err)
 				var vErr *ValidationError
@@ -154,7 +154,7 @@ func TestValidateTableName(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := ValidateTableName(tt.table)
-			
+
 			if tt.expectError {
 				assert.Error(t, err)
 				var vErr *ValidationError
@@ -217,7 +217,7 @@ func TestValidateOrderBy(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := ValidateOrderBy(tt.orderBy)
-			
+
 			if tt.expectError {
 				assert.Error(t, err)
 				var vErr *ValidationError
@@ -389,25 +389,25 @@ func TestRemoveStringLiteralsAndComments(t *testing.T) {
 func TestSecureQueryBuilder(t *testing.T) {
 	t.Run("valid query", func(t *testing.T) {
 		sqb := NewSecureQueryBuilder("SELECT * FROM users", Postgres)
-		
+
 		where := NewWhereBuilder(Postgres)
 		where.Equal("name", "John")
 		sqb.Where(where)
-		
+
 		query, params, err := sqb.Build()
-		
+
 		assert.NoError(t, err)
 		assert.Contains(t, query, "SELECT * FROM users WHERE")
 		assert.Equal(t, []interface{}{"John"}, params)
 	})
-	
+
 	t.Run("validation disabled", func(t *testing.T) {
 		sqb := NewSecureQueryBuilder("SELECT * FROM users", Postgres)
 		sqb.DisableValidation()
-		
+
 		// This should work even with validation disabled
 		query, params, err := sqb.Build()
-		
+
 		assert.NoError(t, err)
 		assert.Equal(t, "SELECT * FROM users", query)
 		assert.Empty(t, params)

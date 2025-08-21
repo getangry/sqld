@@ -9,25 +9,25 @@ import (
 var (
 	// ErrNoConnection indicates a database connection error
 	ErrNoConnection = errors.New("database connection not available")
-	
+
 	// ErrInvalidQuery indicates a malformed query
 	ErrInvalidQuery = errors.New("invalid query")
-	
+
 	// ErrInvalidParameter indicates invalid parameters were provided
 	ErrInvalidParameter = errors.New("invalid parameter")
-	
+
 	// ErrTransactionFailed indicates a transaction operation failed
 	ErrTransactionFailed = errors.New("transaction failed")
-	
+
 	// ErrSQLInjection indicates potential SQL injection detected
 	ErrSQLInjection = errors.New("potential SQL injection detected")
-	
+
 	// ErrNoRows indicates no rows were returned
 	ErrNoRows = errors.New("no rows in result set")
-	
+
 	// ErrTooManyRows indicates more rows than expected were returned
 	ErrTooManyRows = errors.New("too many rows in result set")
-	
+
 	// ErrUnsupportedDialect indicates an unsupported database dialect
 	ErrUnsupportedDialect = errors.New("unsupported database dialect")
 )

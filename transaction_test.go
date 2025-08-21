@@ -122,16 +122,16 @@ func TestStandardTx_Query(t *testing.T) {
 	t.Run("query validation error", func(t *testing.T) {
 		// Create a dummy sql.Tx - we'll skip testing actual DB operations
 		tx := NewStandardTx(nil, Postgres)
-		
+
 		ctx := context.Background()
 		query := "" // Invalid empty query
-		
+
 		_, err := tx.Query(ctx, query)
 		assert.Error(t, err)
-		
+
 		var qErr *QueryError
 		assert.True(t, errors.As(err, &qErr))
-		
+
 		var vErr *ValidationError
 		assert.True(t, errors.As(qErr.Unwrap(), &vErr))
 	})
@@ -140,20 +140,20 @@ func TestStandardTx_Query(t *testing.T) {
 func TestStandardTx_QueryRow(t *testing.T) {
 	t.Run("query validation error", func(t *testing.T) {
 		tx := NewStandardTx(nil, Postgres)
-		
+
 		ctx := context.Background()
 		query := "" // Invalid empty query
-		
+
 		row := tx.QueryRow(ctx, query)
-		
+
 		// Should return ErrorRow
 		errorRow, ok := row.(*ErrorRow)
 		assert.True(t, ok)
 		assert.Error(t, errorRow.err)
-		
+
 		var qErr *QueryError
 		assert.True(t, errors.As(errorRow.err, &qErr))
-		
+
 		var vErr *ValidationError
 		assert.True(t, errors.As(qErr.Unwrap(), &vErr))
 	})
@@ -161,40 +161,40 @@ func TestStandardTx_QueryRow(t *testing.T) {
 
 func TestTransactionalQueries_WithTx(t *testing.T) {
 	t.Skip("Skipping complex transaction test - would require full mock setup")
-	
+
 	// This test would require a complete implementation of mock transaction manager
 	// For now, we'll test the structure and basic error handling elsewhere
 }
 
 func TestRunInTransaction(t *testing.T) {
 	mockTxManager := &MockDB{}
-	
+
 	ctx := context.Background()
-	
+
 	// Test with successful operations
 	op1 := func(ctx context.Context, tx Tx) error {
 		return nil
 	}
-	
+
 	op2 := func(ctx context.Context, tx Tx) error {
 		return nil
 	}
-	
+
 	mockTxManager.On("WithTransaction", ctx, (*TxOptions)(nil), mock.AnythingOfType("func(context.Context, sqld.Tx) error")).Return(nil)
-	
+
 	err := RunInTransaction(ctx, mockTxManager, nil, op1, op2)
 	assert.NoError(t, err)
-	
+
 	mockTxManager.AssertExpectations(t)
 }
 
 func TestErrorRow(t *testing.T) {
 	testErr := errors.New("test error")
 	errorRow := &ErrorRow{err: testErr}
-	
+
 	var dest string
 	err := errorRow.Scan(&dest)
-	
+
 	assert.Equal(t, testErr, err)
 }
 
@@ -203,7 +203,7 @@ func TestTxOptions(t *testing.T) {
 		IsolationLevel: sql.LevelReadCommitted,
 		ReadOnly:       true,
 	}
-	
+
 	assert.Equal(t, sql.LevelReadCommitted, opts.IsolationLevel)
 	assert.True(t, opts.ReadOnly)
 }
@@ -211,7 +211,7 @@ func TestTxOptions(t *testing.T) {
 // Benchmark tests for performance
 func BenchmarkValidateQuery(b *testing.B) {
 	query := "SELECT * FROM users WHERE name = $1 AND status = $2"
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		ValidateQuery(query, Postgres)
@@ -246,7 +246,7 @@ func BenchmarkWhereBuilderComplex(b *testing.B) {
 // Integration test helpers (would require actual database)
 func TestIntegrationHelper(t *testing.T) {
 	t.Skip("Skipping integration test - requires actual database")
-	
+
 	// Example of how integration tests would be structured:
 	// 1. Setup test database
 	// 2. Create StandardDB instance
@@ -261,26 +261,26 @@ func TestContextTimeout(t *testing.T) {
 		// Create a context that's already cancelled
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		
+
 		// The validation itself doesn't check context, but it's good practice
 		// to pass context through for future enhancements
 		query := "SELECT * FROM users"
 		err := ValidateQuery(query, Postgres)
-		
+
 		// Validation should still work even with cancelled context
 		assert.NoError(t, err)
-		
+
 		// But context should be cancelled
 		assert.Error(t, ctx.Err())
 	})
-	
+
 	t.Run("context timeout simulation", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
 		defer cancel()
-		
+
 		// Wait for timeout
 		time.Sleep(2 * time.Millisecond)
-		
+
 		// Context should be cancelled
 		assert.Error(t, ctx.Err())
 		assert.Equal(t, context.DeadlineExceeded, ctx.Err())

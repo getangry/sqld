@@ -29,13 +29,13 @@ var (
 		// XP commands (SQL Server)
 		regexp.MustCompile(`(?i)(xp_cmdshell|sp_configure|sp_addextendedproc)`),
 	}
-	
+
 	// Patterns that are generally safe in column names
 	safeColumnPattern = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)?$`)
-	
+
 	// Pattern for safe table names (including schema)
 	safeTablePattern = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)?$`)
-	
+
 	// Pattern for safe identifiers (with optional quotes)
 	safeIdentifierPattern = regexp.MustCompile(`^"?[a-zA-Z_][a-zA-Z0-9_]*"?$`)
 )
@@ -48,10 +48,10 @@ func ValidateQuery(query string, dialect Dialect) error {
 			Message: "query cannot be empty",
 		}
 	}
-	
+
 	// Check for common SQL injection patterns in the query structure
 	// Note: This is a basic check and should not be the only defense
-	
+
 	// Check for multiple statements (not counting subqueries)
 	if countStatements(query) > 1 {
 		return &ValidationError{
@@ -59,7 +59,7 @@ func ValidateQuery(query string, dialect Dialect) error {
 			Message: "multiple statements detected",
 		}
 	}
-	
+
 	return nil
 }
 
@@ -71,10 +71,10 @@ func ValidateColumnName(column string) error {
 			Message: "column name cannot be empty",
 		}
 	}
-	
+
 	// Allow quoted identifiers
 	cleanColumn := strings.Trim(column, `"`)
-	
+
 	// Check if it matches safe pattern
 	if !safeColumnPattern.MatchString(cleanColumn) {
 		// Check for SQL injection patterns
@@ -87,7 +87,7 @@ func ValidateColumnName(column string) error {
 				}
 			}
 		}
-		
+
 		// If it doesn't match safe pattern but no injection detected,
 		// it might be a complex expression which we'll allow with caution
 		if strings.ContainsAny(column, ";--/*") {
@@ -98,7 +98,7 @@ func ValidateColumnName(column string) error {
 			}
 		}
 	}
-	
+
 	return nil
 }
 
@@ -110,10 +110,10 @@ func ValidateTableName(table string) error {
 			Message: "table name cannot be empty",
 		}
 	}
-	
+
 	// Allow quoted identifiers
 	cleanTable := strings.Trim(table, `"`)
-	
+
 	if !safeTablePattern.MatchString(cleanTable) {
 		return &ValidationError{
 			Field:   "table",
@@ -121,7 +121,7 @@ func ValidateTableName(table string) error {
 			Message: "invalid table name format",
 		}
 	}
-	
+
 	return nil
 }
 
@@ -133,13 +133,13 @@ func ValidateOrderBy(orderBy string) error {
 			Message: "order by clause cannot be empty",
 		}
 	}
-	
+
 	// Split by comma to handle multiple columns
 	parts := strings.Split(orderBy, ",")
-	
+
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
-		
+
 		// Check for basic ORDER BY pattern: column [ASC|DESC]
 		tokens := strings.Fields(part)
 		if len(tokens) == 0 {
@@ -149,7 +149,7 @@ func ValidateOrderBy(orderBy string) error {
 				Message: "empty order by clause part",
 			}
 		}
-		
+
 		// Validate column name
 		columnName := tokens[0]
 		if err := ValidateColumnName(columnName); err != nil {
@@ -159,7 +159,7 @@ func ValidateOrderBy(orderBy string) error {
 				Message: fmt.Sprintf("invalid column in ORDER BY: %v", err),
 			}
 		}
-		
+
 		// If there's a second token, it should be ASC or DESC
 		if len(tokens) > 1 {
 			direction := strings.ToUpper(tokens[1])
@@ -171,7 +171,7 @@ func ValidateOrderBy(orderBy string) error {
 				}
 			}
 		}
-		
+
 		// No more than 2 tokens per part
 		if len(tokens) > 2 {
 			return &ValidationError{
@@ -181,7 +181,7 @@ func ValidateOrderBy(orderBy string) error {
 			}
 		}
 	}
-	
+
 	return nil
 }
 
@@ -195,7 +195,7 @@ func ValidateValue(value interface{}) error {
 			"SELECT", "INSERT", "UPDATE", "DELETE", "DROP",
 			"CREATE", "ALTER", "EXEC", "EXECUTE", "UNION",
 		}
-		
+
 		for _, keyword := range suspiciousKeywords {
 			if strings.Contains(upperVal, keyword) {
 				// It's OK if it's in a proper string context
@@ -205,7 +205,7 @@ func ValidateValue(value interface{}) error {
 			}
 		}
 	}
-	
+
 	return nil
 }
 
@@ -213,7 +213,7 @@ func ValidateValue(value interface{}) error {
 func SanitizeIdentifier(identifier string, dialect Dialect) string {
 	// Remove any potentially dangerous characters
 	cleaned := regexp.MustCompile(`[^a-zA-Z0-9_.]`).ReplaceAllString(identifier, "")
-	
+
 	// Quote the identifier based on dialect
 	switch dialect {
 	case Postgres:
@@ -231,12 +231,12 @@ func SanitizeIdentifier(identifier string, dialect Dialect) string {
 func countStatements(query string) int {
 	// Remove string literals and comments to avoid false positives
 	cleaned := removeStringLiteralsAndComments(query)
-	
+
 	// Count semicolons that might indicate multiple statements
 	// This is a simple heuristic and not foolproof
 	count := 1
 	inParens := 0
-	
+
 	for _, char := range cleaned {
 		switch char {
 		case '(':
@@ -249,7 +249,7 @@ func countStatements(query string) int {
 			}
 		}
 	}
-	
+
 	return count
 }
 
@@ -260,11 +260,11 @@ func removeStringLiteralsAndComments(query string) string {
 	inComment := false
 	inBlockComment := false
 	stringDelimiter := '\x00'
-	
+
 	runes := []rune(query)
 	for i := 0; i < len(runes); i++ {
 		char := runes[i]
-		
+
 		// Handle block comments
 		if !inString && !inComment && i < len(runes)-1 {
 			if char == '/' && runes[i+1] == '*' {
@@ -273,7 +273,7 @@ func removeStringLiteralsAndComments(query string) string {
 				continue
 			}
 		}
-		
+
 		if inBlockComment {
 			if char == '*' && i < len(runes)-1 && runes[i+1] == '/' {
 				inBlockComment = false
@@ -281,7 +281,7 @@ func removeStringLiteralsAndComments(query string) string {
 			}
 			continue
 		}
-		
+
 		// Handle line comments
 		if !inString && !inBlockComment {
 			if char == '-' && i < len(runes)-1 && runes[i+1] == '-' {
@@ -290,14 +290,14 @@ func removeStringLiteralsAndComments(query string) string {
 				continue
 			}
 		}
-		
+
 		if inComment {
 			if char == '\n' {
 				inComment = false
 			}
 			continue
 		}
-		
+
 		// Handle string literals
 		if !inComment && !inBlockComment {
 			if !inString && (char == '\'' || char == '"') {
@@ -305,7 +305,7 @@ func removeStringLiteralsAndComments(query string) string {
 				stringDelimiter = char
 				continue
 			}
-			
+
 			if inString && char == stringDelimiter {
 				// Check for escaped quotes
 				if i < len(runes)-1 && runes[i+1] == stringDelimiter {
@@ -317,13 +317,13 @@ func removeStringLiteralsAndComments(query string) string {
 				continue
 			}
 		}
-		
+
 		// Add character if not in string or comment
 		if !inString && !inComment && !inBlockComment {
 			result = append(result, char)
 		}
 	}
-	
+
 	return string(result)
 }
 
@@ -344,12 +344,12 @@ func NewSecureQueryBuilder(baseQuery string, dialect Dialect) *SecureQueryBuilde
 // Build builds the query with validation
 func (sqb *SecureQueryBuilder) Build() (string, []interface{}, error) {
 	query, params := sqb.QueryBuilder.Build()
-	
+
 	if sqb.validationEnabled {
 		if err := ValidateQuery(query, sqb.dialect); err != nil {
 			return "", nil, err
 		}
-		
+
 		// Validate parameters
 		for _, param := range params {
 			if err := ValidateValue(param); err != nil {
@@ -357,7 +357,7 @@ func (sqb *SecureQueryBuilder) Build() (string, []interface{}, error) {
 			}
 		}
 	}
-	
+
 	return query, params, nil
 }
 

@@ -89,13 +89,13 @@ func (w *WhereBuilder) Equal(column string, value interface{}) ConditionBuilder 
 	if value == nil {
 		return w
 	}
-	
+
 	// Validate column name
 	if err := ValidateColumnName(column); err != nil {
 		// Skip validation for now to maintain compatibility
 		// In production, you might want to log this or handle it differently
 	}
-	
+
 	w.addCondition(column+" = "+w.placeholder(), value)
 	return w
 }
@@ -105,12 +105,12 @@ func (w *WhereBuilder) NotEqual(column string, value interface{}) ConditionBuild
 	if value == nil {
 		return w
 	}
-	
+
 	// Validate column name
 	if err := ValidateColumnName(column); err != nil {
 		// Skip validation for now to maintain compatibility
 	}
-	
+
 	w.addCondition(column+" != "+w.placeholder(), value)
 	return w
 }
@@ -120,12 +120,12 @@ func (w *WhereBuilder) GreaterThan(column string, value interface{}) ConditionBu
 	if value == nil {
 		return w
 	}
-	
+
 	// Validate column name
 	if err := ValidateColumnName(column); err != nil {
 		// Skip validation for now to maintain compatibility
 	}
-	
+
 	w.addCondition(column+" > "+w.placeholder(), value)
 	return w
 }
@@ -135,12 +135,12 @@ func (w *WhereBuilder) LessThan(column string, value interface{}) ConditionBuild
 	if value == nil {
 		return w
 	}
-	
+
 	// Validate column name
 	if err := ValidateColumnName(column); err != nil {
 		// Skip validation for now to maintain compatibility
 	}
-	
+
 	w.addCondition(column+" < "+w.placeholder(), value)
 	return w
 }

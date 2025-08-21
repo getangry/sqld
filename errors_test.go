@@ -73,9 +73,9 @@ func TestWrapQueryError(t *testing.T) {
 		context := "user query"
 
 		result := WrapQueryError(originalErr, query, params, context)
-		
+
 		assert.NotNil(t, result)
-		
+
 		var qErr *QueryError
 		assert.True(t, errors.As(result, &qErr))
 		assert.Equal(t, query, qErr.Query)
@@ -96,9 +96,9 @@ func TestWrapTransactionError(t *testing.T) {
 		operation := "rollback"
 
 		result := WrapTransactionError(originalErr, operation)
-		
+
 		assert.NotNil(t, result)
-		
+
 		var tErr *TransactionError
 		assert.True(t, errors.As(result, &tErr))
 		assert.Equal(t, operation, tErr.Operation)

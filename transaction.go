@@ -45,7 +45,7 @@ func (t *StandardTx) Query(ctx context.Context, query string, args ...interface{
 	if err := ValidateQuery(query, t.dialect); err != nil {
 		return nil, WrapQueryError(err, query, args, "transaction query")
 	}
-	
+
 	rows, err := t.tx.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, WrapQueryError(err, query, args, "transaction query")
@@ -59,7 +59,7 @@ func (t *StandardTx) QueryRow(ctx context.Context, query string, args ...interfa
 	if err := ValidateQuery(query, t.dialect); err != nil {
 		return &ErrorRow{err: WrapQueryError(err, query, args, "transaction query row")}
 	}
-	
+
 	row := t.tx.QueryRowContext(ctx, query, args...)
 	return &StandardRow{row: row}
 }
@@ -70,7 +70,7 @@ func (t *StandardTx) Exec(ctx context.Context, query string, args ...interface{}
 	if err := ValidateQuery(query, t.dialect); err != nil {
 		return nil, WrapQueryError(err, query, args, "transaction exec")
 	}
-	
+
 	result, err := t.tx.ExecContext(ctx, query, args...)
 	if err != nil {
 		return nil, WrapQueryError(err, query, args, "transaction exec")
@@ -114,7 +114,7 @@ func (d *StandardDB) Query(ctx context.Context, query string, args ...interface{
 	if err := ValidateQuery(query, d.dialect); err != nil {
 		return nil, WrapQueryError(err, query, args, "query")
 	}
-	
+
 	rows, err := d.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, WrapQueryError(err, query, args, "query")
@@ -128,7 +128,7 @@ func (d *StandardDB) QueryRow(ctx context.Context, query string, args ...interfa
 	if err := ValidateQuery(query, d.dialect); err != nil {
 		return &ErrorRow{err: WrapQueryError(err, query, args, "query row")}
 	}
-	
+
 	row := d.db.QueryRowContext(ctx, query, args...)
 	return &StandardRow{row: row}
 }
@@ -142,12 +142,12 @@ func (d *StandardDB) BeginTx(ctx context.Context, opts *TxOptions) (Tx, error) {
 			ReadOnly:  opts.ReadOnly,
 		}
 	}
-	
+
 	tx, err := d.db.BeginTx(ctx, txOpts)
 	if err != nil {
 		return nil, WrapTransactionError(err, "begin")
 	}
-	
+
 	return NewStandardTx(tx, d.dialect), nil
 }
 
@@ -157,7 +157,7 @@ func (d *StandardDB) WithTransaction(ctx context.Context, opts *TxOptions, fn fu
 	if err != nil {
 		return err
 	}
-	
+
 	// Ensure transaction is handled properly
 	defer func() {
 		if r := recover(); r != nil {
@@ -165,7 +165,7 @@ func (d *StandardDB) WithTransaction(ctx context.Context, opts *TxOptions, fn fu
 			panic(r) // Re-panic after rollback
 		}
 	}()
-	
+
 	// Execute the function
 	if err := fn(ctx, tx); err != nil {
 		if rbErr := tx.Rollback(ctx); rbErr != nil {
@@ -173,12 +173,12 @@ func (d *StandardDB) WithTransaction(ctx context.Context, opts *TxOptions, fn fu
 		}
 		return err
 	}
-	
+
 	// Commit the transaction
 	if err := tx.Commit(ctx); err != nil {
 		return WrapTransactionError(err, "commit")
 	}
-	
+
 	return nil
 }
 
