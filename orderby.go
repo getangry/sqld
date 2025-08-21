@@ -92,7 +92,6 @@ func (ob *OrderByBuilder) BuildWithPrefix() string {
 	return "ORDER BY " + clause
 }
 
-
 // ParseSortDirection converts a string to SortDirection
 func ParseSortDirection(dir string) SortDirection {
 	switch strings.ToUpper(strings.TrimSpace(dir)) {

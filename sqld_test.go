@@ -207,7 +207,6 @@ func TestConditionalWhere(t *testing.T) {
 	assert.Contains(t, sql, "country2 = $3")
 }
 
-
 func TestCombineConditions(t *testing.T) {
 	where1 := NewWhereBuilder(Postgres)
 	where1.Equal("name", "John")

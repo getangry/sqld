@@ -175,7 +175,7 @@ func QueryAndScanPaginatedReflection[T any](
 	if len(items) > limit {
 		result.HasMore = true
 		result.Items = items[:limit]
-		
+
 		// Generate next cursor from last item
 		if getCursorFields != nil {
 			lastItem := items[limit-1]
@@ -214,7 +214,7 @@ func (ss *StructScanner[T]) ScanRow(rows Rows) (T, error) {
 
 	// Create scan destinations based on field order
 	scanDests := make([]interface{}, len(ss.fieldOrder))
-	
+
 	for i, fieldName := range ss.fieldOrder {
 		_, found := resultType.FieldByName(fieldName)
 		if !found {
@@ -258,7 +258,7 @@ type SmartReflectionScanner[T any] struct {
 func NewSmartReflectionScanner[T any]() *SmartReflectionScanner[T] {
 	var zero T
 	structType := reflect.TypeOf(zero)
-	
+
 	// Build field mapping
 	fieldMapping := make(map[string]int)
 	for i := 0; i < structType.NumField(); i++ {
@@ -312,6 +312,7 @@ func (srs *SmartReflectionScanner[T]) ScanRow(rows Rows) (T, error) {
 
 	return result, nil
 }
+
 // PaginatedResult wraps results with pagination metadata
 type PaginatedResult[T any] struct {
 	Items      []T     `json:"items"`
@@ -341,26 +342,26 @@ func DecodeCursor(encoded string) (*Cursor, error) {
 	if encoded == "" {
 		return nil, nil
 	}
-	
+
 	data, err := base64.URLEncoding.DecodeString(encoded)
 	if err != nil {
 		return nil, fmt.Errorf("invalid cursor encoding: %w", err)
 	}
-	
+
 	var cursorData CursorData
 	if err := json.Unmarshal(data, &cursorData); err != nil {
 		return nil, fmt.Errorf("invalid cursor format: %w", err)
 	}
-	
+
 	cursor := &Cursor{
 		CreatedAt: cursorData.Timestamp,
 	}
-	
+
 	if id, ok := cursorData.ID.(float64); ok {
 		cursor.ID = int32(id)
 	} else if id, ok := cursorData.ID.(int32); ok {
 		cursor.ID = id
 	}
-	
+
 	return cursor, nil
 }

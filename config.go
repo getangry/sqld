@@ -7,27 +7,27 @@ import (
 // Config is the unified configuration for both filtering and sorting
 type Config struct {
 	// === FILTERING CONFIGURATION ===
-	
+
 	// AllowedFields restricts which fields can be filtered or sorted
 	AllowedFields map[string]bool
-	
+
 	// FieldMappings maps query parameter names to database column names
 	FieldMappings map[string]string
-	
+
 	// DefaultOperator is used when no filter operator is specified
 	DefaultOperator Operator
-	
+
 	// DateLayout for parsing date strings in filters
 	DateLayout string
-	
+
 	// MaxFilters limits the number of filters to prevent abuse
 	MaxFilters int
-	
+
 	// === SORTING CONFIGURATION ===
-	
+
 	// MaxSortFields limits the number of sort fields to prevent abuse
 	MaxSortFields int
-	
+
 	// DefaultSort defines the default sorting when no sort is specified
 	DefaultSort []SortField
 }
@@ -135,4 +135,3 @@ func (c *Config) ValidateAndBuild(fields []SortField) (*OrderByBuilder, error) {
 
 	return builder, nil
 }
-

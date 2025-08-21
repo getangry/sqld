@@ -233,5 +233,3 @@ func TestEnhancedQueries_DynamicQueryRow(t *testing.T) {
 		assert.Contains(t, qErr.Context, "validation")
 	})
 }
-
-

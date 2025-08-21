@@ -44,7 +44,6 @@ type Filter struct {
 	Value    interface{} `json:"value"`
 }
 
-
 // MapOperator converts string operators to Operator constants
 func MapOperator(op string) Operator {
 	switch strings.ToLower(op) {
