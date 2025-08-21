@@ -124,17 +124,75 @@ func ParseQueryString(queryString string, config *QueryFilterConfig) ([]Filter, 
 		config = DefaultQueryFilterConfig()
 	}
 
-	values, err := url.ParseQuery(queryString)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse query string: %w", err)
+	// Parse manually to preserve order of parameters
+	var filters []Filter
+
+	if queryString == "" {
+		return filters, nil
 	}
 
-	return ParseURLValues(values, config)
+	// Split by & to get individual parameters
+	params := strings.Split(queryString, "&")
+
+	for _, param := range params {
+		if len(filters) >= config.MaxFilters {
+			return nil, fmt.Errorf("too many filters, maximum allowed: %d", config.MaxFilters)
+		}
+
+		// Split by = to get key and value
+		parts := strings.SplitN(param, "=", 2)
+		if len(parts) != 2 {
+			continue // Skip malformed parameters
+		}
+
+		key, err := url.QueryUnescape(parts[0])
+		if err != nil {
+			continue
+		}
+
+		value, err := url.QueryUnescape(parts[1])
+		if err != nil {
+			continue
+		}
+
+		// Skip empty values
+		if value == "" {
+			continue
+		}
+
+		// Parse the field and operator from the key
+		field, operator := parseFieldOperator(key, config.DefaultOperator)
+
+		// Map field name if configured
+		if mapped, exists := config.FieldMappings[field]; exists {
+			field = mapped
+		}
+
+		// Check if field is allowed
+		if len(config.AllowedFields) > 0 && !config.AllowedFields[field] {
+			continue // Skip disallowed fields
+		}
+
+		// Convert value based on operator
+		convertedValue, err := convertValue(value, operator, config.DateLayout)
+		if err != nil {
+			return nil, fmt.Errorf("invalid value for field %s: %w", field, err)
+		}
+
+		filters = append(filters, Filter{
+			Field:    field,
+			Operator: operator,
+			Value:    convertedValue,
+		})
+	}
+
+	return filters, nil
 }
 
 // ParseRequest parses filters from an HTTP request
 func ParseRequest(r *http.Request, config *QueryFilterConfig) ([]Filter, error) {
-	return ParseURLValues(r.URL.Query(), config)
+	// Use the raw query string to preserve parameter order
+	return ParseQueryString(r.URL.RawQuery, config)
 }
 
 // ParseURLValues parses url.Values into Filter objects
@@ -253,10 +311,11 @@ func convertValue(value string, op Operator, dateLayout string) (interface{}, er
 		return result, nil
 
 	case OpBefore, OpAfter:
-		// Try to parse as date
+		// For before/after, validate date format but return as string
 		if dateLayout != "" {
-			if date, err := time.Parse(dateLayout, value); err == nil {
-				return date, nil
+			if _, err := time.Parse(dateLayout, value); err == nil {
+				// Valid date format, return as string for SQL compatibility
+				return value, nil
 			}
 		}
 		return value, nil

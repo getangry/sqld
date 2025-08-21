@@ -180,9 +180,7 @@ func Example_serviceIntegration() {
 		}
 
 		// Base query for user search
-		baseQuery := `
-			SELECT id, name, email, status, role, country, age, verified, created_at
-			FROM users`
+		baseQuery := "SELECT id, name, email, status, role, country, age, verified, created_at\nFROM users"
 
 		// Add WHERE conditions if any exist
 		var query string
