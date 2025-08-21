@@ -269,3 +269,34 @@ func TestDialectSpecificFeatures(t *testing.T) {
 		assert.NotContains(t, sql, "ILIKE")
 	})
 }
+
+func TestOrderByReplacement(t *testing.T) {
+	// Test the ORDER BY replacement functionality
+	sqlcQuery := `SELECT * FROM users WHERE deleted_at IS NULL ORDER BY created_at DESC, id DESC /* sqld:orderby */ LIMIT 20`
+	
+	// Create an ORDER BY builder for ascending ID sorting
+	orderBy := NewOrderByBuilder()
+	orderBy.Asc("id")
+	
+	// Process the query with dynamic sorting
+	finalSQL, params, err := SearchQuery(
+		sqlcQuery,
+		Postgres,
+		nil,     // no WHERE filters
+		nil,     // no cursor
+		orderBy, // sort by id ASC
+		20,      // limit
+	)
+	
+	assert.NoError(t, err)
+	assert.NotEmpty(t, finalSQL)
+	
+	t.Logf("Original: %s", sqlcQuery)
+	t.Logf("Result:   %s", finalSQL)
+	t.Logf("Params:   %+v", params)
+	
+	// Verify the ORDER BY was replaced, not appended
+	assert.Contains(t, finalSQL, "ORDER BY id ASC")
+	// The original ORDER BY should be completely replaced
+	assert.NotContains(t, finalSQL, "created_at DESC, id DESC, id ASC") // Should not append
+}
