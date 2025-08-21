@@ -20,7 +20,36 @@ example/
 └── README.md           # This file
 ```
 
-## Setup Instructions
+## Quick Start with Docker
+
+The fastest way to test the examples is using Docker Compose:
+
+```bash
+# Start PostgreSQL and the application
+make up
+
+# Or manually:
+docker-compose up -d
+
+# Test the API
+curl "http://localhost:8080/users?name[contains]=john&age[gt]=25"
+
+# Run comprehensive tests
+make test
+
+# View logs
+make logs
+
+# Connect to database
+make psql
+
+# Clean up
+make down
+```
+
+See [DOCKER.md](./DOCKER.md) for detailed Docker instructions.
+
+## Manual Setup
 
 ### 1. Install Dependencies
 

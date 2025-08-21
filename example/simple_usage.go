@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"os"
 
 	"github.com/getangry/sqld"
 	"github.com/getangry/sqld/example/generated/db"
@@ -12,7 +13,12 @@ import (
 
 func main() {
 	// Your existing sqlc setup
-	conn, err := pgx.Connect(context.Background(), "postgres://user:password@localhost/mydb?sslmode=disable")
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		databaseURL = "postgres://sqld_user:sqld_password@localhost:5432/sqld_db?sslmode=disable"
+	}
+
+	conn, err := pgx.Connect(context.Background(), databaseURL)
 	if err != nil {
 		log.Fatal("Failed to connect to database:", err)
 	}

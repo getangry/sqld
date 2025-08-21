@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: sqld_postgres
+    environment:
+      POSTGRES_USER: sqld_user
+      POSTGRES_PASSWORD: sqld_password
+      POSTGRES_DB: sqld_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./sqlc/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+      - ./init-data.sql:/docker-entrypoint-initdb.d/02-data.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sqld_user -d sqld_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: sqld_app
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: "postgres://sqld_user:sqld_password@postgres:5432/sqld_db?sslmode=disable"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - .:/app
+      - /app/generated
+    working_dir: /app
+
+volumes:
+  postgres_data:
