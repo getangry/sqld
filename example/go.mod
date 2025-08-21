@@ -3,8 +3,8 @@ module github.com/getangry/sqld/example
 go 1.23.0
 
 require (
-	github.com/getangry/sqld v0.1.2
-	github.com/getangry/sqld/adapters/pgx v0.1.1
+	github.com/getangry/sqld v0.1.1
+	github.com/getangry/sqld/adapters/pgx v0.0.0-00010101000000-000000000000
 	github.com/gin-gonic/gin v1.10.0
 	github.com/jackc/pgx/v5 v5.5.1
 )

@@ -205,12 +205,6 @@ func (s *UserService) SearchUsers(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid filters or sorting: " + err.Error()})
 		return
 	}
-	
-	// DEBUG: Log the parsed sorting
-	fmt.Printf("DEBUG: OrderBy has fields: %v\n", orderBy.HasFields())
-	if orderBy.HasFields() {
-		fmt.Printf("DEBUG: OrderBy SQL: %s\n", orderBy.Build())
-	}
 
 	// Execute with dynamic filters and sorting using automatic reflection-based scanning
 	users, err := sqld.QueryAndScanAllReflection[db.User](

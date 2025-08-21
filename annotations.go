@@ -81,11 +81,20 @@ func (ap *AnnotationProcessor) ProcessQuery(
 		if orderBy != nil && orderBy.HasFields() {
 			// Replace the default ORDER BY with dynamic ordering
 			// Find the ORDER BY clause and replace everything before the annotation
-			re := regexp.MustCompile(`ORDER BY ([^/]*)(/\* sqld:orderby \*/)`)
+			// Use (?s) flag to make . match newlines, handle whitespace between ORDER BY and fields
+			re := regexp.MustCompile(`(?s)ORDER BY\s+([\s\S]*?)\s*/\* sqld:orderby \*/`)
 			if re.MatchString(sql) {
 				// Replace the default ORDER BY fields with dynamic ones
 				orderBySQL := orderBy.Build()
-				sql = re.ReplaceAllString(sql, "ORDER BY "+orderBySQL+" ")
+				// Use ReplaceAllStringFunc to replace only the first occurrence
+				replaced := false
+				sql = re.ReplaceAllStringFunc(sql, func(match string) string {
+					if !replaced {
+						replaced = true
+						return "ORDER BY " + orderBySQL + " "
+					}
+					return match // Leave subsequent matches unchanged
+				})
 			}
 		} else {
 			// No dynamic ordering provided, just remove the annotation
@@ -145,17 +154,6 @@ func SearchQuery(
 	limit int,
 	originalParams ...interface{},
 ) (string, []interface{}, error) {
-	// DEBUG: Log input parameters
-	fmt.Printf("DEBUG SearchQuery: OrderBy hasFields=%v\n", orderBy != nil && orderBy.HasFields())
-	if orderBy != nil && orderBy.HasFields() {
-		fmt.Printf("DEBUG SearchQuery: OrderBy SQL='%s'\n", orderBy.Build())
-	}
-	
 	processor := NewAnnotationProcessor(dialect)
-	finalSQL, params, err := processor.ProcessQuery(originalSQL, where, cursor, orderBy, limit, originalParams...)
-	
-	// DEBUG: Log final result
-	fmt.Printf("DEBUG SearchQuery: Final SQL='%s'\n", finalSQL)
-	
-	return finalSQL, params, err
+	return processor.ProcessQuery(originalSQL, where, cursor, orderBy, limit, originalParams...)
 }

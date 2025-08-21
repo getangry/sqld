@@ -270,33 +270,207 @@ func TestDialectSpecificFeatures(t *testing.T) {
 	})
 }
 
-func TestOrderByReplacement(t *testing.T) {
-	// Test the ORDER BY replacement functionality
-	sqlcQuery := `SELECT * FROM users WHERE deleted_at IS NULL ORDER BY created_at DESC, id DESC /* sqld:orderby */ LIMIT 20`
-	
-	// Create an ORDER BY builder for ascending ID sorting
+func TestAnnotationProcessor_OrderByReplacement(t *testing.T) {
+	tests := []struct {
+		name        string
+		originalSQL string
+		orderBy     *OrderByBuilder
+		expectedSQL string
+		description string
+	}{
+		{
+			name:        "replace single ORDER BY field",
+			originalSQL: "SELECT * FROM users ORDER BY created_at DESC /* sqld:orderby */",
+			orderBy: func() *OrderByBuilder {
+				ob := NewOrderByBuilder()
+				ob.Add("id", "ASC")
+				return ob
+			}(),
+			expectedSQL: "SELECT * FROM users ORDER BY id ASC ",
+			description: "should replace default ORDER BY with dynamic sorting",
+		},
+		{
+			name:        "replace multiple ORDER BY fields",
+			originalSQL: "SELECT * FROM users ORDER BY created_at DESC, id DESC /* sqld:orderby */",
+			orderBy: func() *OrderByBuilder {
+				ob := NewOrderByBuilder()
+				ob.Add("name", "ASC")
+				ob.Add("age", "DESC")
+				return ob
+			}(),
+			expectedSQL: "SELECT * FROM users ORDER BY name ASC, age DESC ",
+			description: "should replace multiple default fields with multiple dynamic fields",
+		},
+		{
+			name:        "remove annotation when no dynamic ordering",
+			originalSQL: "SELECT * FROM users ORDER BY created_at DESC /* sqld:orderby */",
+			orderBy:     nil,
+			expectedSQL: "SELECT * FROM users ORDER BY created_at DESC ",
+			description: "should remove annotation but keep default ORDER BY when no dynamic sorting",
+		},
+		{
+			name:        "remove annotation with empty OrderByBuilder",
+			originalSQL: "SELECT * FROM users ORDER BY created_at DESC /* sqld:orderby */",
+			orderBy:     NewOrderByBuilder(), // empty
+			expectedSQL: "SELECT * FROM users ORDER BY created_at DESC ",
+			description: "should remove annotation when OrderByBuilder has no fields",
+		},
+		{
+			name:        "complex ORDER BY with multiple clauses",
+			originalSQL: "SELECT u.*, p.name as profile_name FROM users u JOIN profiles p ON u.id = p.user_id ORDER BY u.created_at DESC, u.id DESC /* sqld:orderby */ LIMIT 10",
+			orderBy: func() *OrderByBuilder {
+				ob := NewOrderByBuilder()
+				ob.Add("u.name", "ASC")
+				ob.Add("p.name", "DESC")
+				return ob
+			}(),
+			expectedSQL: "SELECT u.*, p.name as profile_name FROM users u JOIN profiles p ON u.id = p.user_id ORDER BY u.name ASC, p.name DESC  LIMIT 10",
+			description: "should handle complex queries with joins and preserve other clauses",
+		},
+		{
+			name:        "ORDER BY with spaces and newlines",
+			originalSQL: "SELECT * FROM users\nORDER BY\n  created_at DESC,\n  id DESC\n/* sqld:orderby */\nLIMIT 5",
+			orderBy: func() *OrderByBuilder {
+				ob := NewOrderByBuilder()
+				ob.Add("email", "ASC")
+				return ob
+			}(),
+			expectedSQL: "SELECT * FROM users\nORDER BY email ASC \nLIMIT 5",
+			description: "should handle ORDER BY clauses with whitespace and newlines",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			processor := NewAnnotationProcessor(Postgres)
+
+			resultSQL, _, err := processor.ProcessQuery(
+				tt.originalSQL,
+				nil, // where
+				nil, // cursor
+				tt.orderBy,
+				0, // limit
+			)
+
+			assert.NoError(t, err)
+			assert.Equal(t, tt.expectedSQL, resultSQL, tt.description)
+		})
+	}
+}
+
+func TestAnnotationProcessor_OrderByWithOtherAnnotations(t *testing.T) {
+	processor := NewAnnotationProcessor(Postgres)
+
+	// Test ORDER BY replacement working together with other annotations
+	originalSQL := "SELECT * FROM users WHERE status = 'active' /* sqld:where */ ORDER BY created_at DESC /* sqld:orderby */ /* sqld:limit */"
+
+	where := NewWhereBuilder(Postgres)
+	where.Equal("age", 25)
+
 	orderBy := NewOrderByBuilder()
-	orderBy.Asc("id")
-	
-	// Process the query with dynamic sorting
-	finalSQL, params, err := SearchQuery(
-		sqlcQuery,
-		Postgres,
-		nil,     // no WHERE filters
-		nil,     // no cursor
-		orderBy, // sort by id ASC
-		20,      // limit
+	orderBy.Add("name", "ASC")
+	orderBy.Add("id", "DESC")
+
+	resultSQL, params, err := processor.ProcessQuery(
+		originalSQL,
+		where,
+		nil, // cursor
+		orderBy,
+		10, // limit
 	)
-	
+
 	assert.NoError(t, err)
-	assert.NotEmpty(t, finalSQL)
-	
-	t.Logf("Original: %s", sqlcQuery)
-	t.Logf("Result:   %s", finalSQL)
-	t.Logf("Params:   %+v", params)
-	
-	// Verify the ORDER BY was replaced, not appended
-	assert.Contains(t, finalSQL, "ORDER BY id ASC")
-	// The original ORDER BY should be completely replaced
-	assert.NotContains(t, finalSQL, "created_at DESC, id DESC, id ASC") // Should not append
+
+	// Should contain the WHERE condition
+	assert.Contains(t, resultSQL, "AND age = $1")
+
+	// Should have replaced the ORDER BY
+	assert.Contains(t, resultSQL, "ORDER BY name ASC, id DESC")
+	assert.NotContains(t, resultSQL, "created_at DESC")
+
+	// Should contain the LIMIT
+	assert.Contains(t, resultSQL, "LIMIT $2")
+
+	// Should have correct parameters
+	assert.Equal(t, []interface{}{25, 10}, params)
+}
+
+func TestAnnotationProcessor_OrderByDialectDifferences(t *testing.T) {
+	originalSQL := "SELECT * FROM users ORDER BY created_at DESC /* sqld:orderby */ /* sqld:limit */"
+
+	orderBy := NewOrderByBuilder()
+	orderBy.Add("name", "ASC")
+
+	tests := []struct {
+		dialect          Dialect
+		expectedLimitSQL string
+	}{
+		{Postgres, "LIMIT $1"},
+		{MySQL, "LIMIT ?"},
+		{SQLite, "LIMIT ?"},
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.dialect), func(t *testing.T) {
+			processor := NewAnnotationProcessor(tt.dialect)
+
+			resultSQL, params, err := processor.ProcessQuery(
+				originalSQL,
+				nil, // where
+				nil, // cursor
+				orderBy,
+				5, // limit
+			)
+
+			assert.NoError(t, err)
+			assert.Contains(t, resultSQL, "ORDER BY name ASC")
+			assert.Contains(t, resultSQL, tt.expectedLimitSQL)
+			assert.Equal(t, []interface{}{5}, params)
+		})
+	}
+}
+
+func TestAnnotationProcessor_OrderByEdgeCases(t *testing.T) {
+	processor := NewAnnotationProcessor(Postgres)
+
+	t.Run("no ORDER BY annotation", func(t *testing.T) {
+		originalSQL := "SELECT * FROM users WHERE id > 0"
+
+		orderBy := NewOrderByBuilder()
+		orderBy.Add("name", "ASC")
+
+		resultSQL, _, err := processor.ProcessQuery(
+			originalSQL,
+			nil, // where
+			nil, // cursor
+			orderBy,
+			0, // limit
+		)
+
+		assert.NoError(t, err)
+		// Should not modify SQL when no annotation present
+		assert.Equal(t, originalSQL, resultSQL)
+	})
+
+	t.Run("multiple ORDER BY annotations", func(t *testing.T) {
+		originalSQL := "SELECT * FROM users ORDER BY created_at DESC /* sqld:orderby */ UNION SELECT * FROM archived_users ORDER BY created_at DESC /* sqld:orderby */"
+
+		orderBy := NewOrderByBuilder()
+		orderBy.Add("name", "ASC")
+
+		resultSQL, _, err := processor.ProcessQuery(
+			originalSQL,
+			nil, // where
+			nil, // cursor
+			orderBy,
+			0, // limit
+		)
+
+		assert.NoError(t, err)
+		// Should only replace the first annotation
+		assert.Contains(t, resultSQL, "ORDER BY name ASC")
+		// Second annotation should remain as is since we only replace first occurrence
+		numReplacements := strings.Count(resultSQL, "ORDER BY name ASC")
+		assert.Equal(t, 1, numReplacements)
+	})
 }
