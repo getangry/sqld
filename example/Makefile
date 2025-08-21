@@ -9,6 +9,7 @@ help:
 	@echo "  make down        - Stop all services"
 	@echo "  make logs        - View application logs"
 	@echo "  make test        - Run API tests"
+	@echo "  make test-cursor - Test cursor-based pagination"
 	@echo "  make clean       - Stop and remove all containers and volumes"
 	@echo "  make reset       - Reset database with fresh data"
 	@echo "  make generate    - Regenerate SQLc code"
@@ -21,8 +22,8 @@ up:
 	docker-compose up -d
 	@echo "Waiting for services to be ready..."
 	@sleep 5
-	@echo "Application ready at http://localhost:8080"
-	@echo "Try: curl http://localhost:8080/users"
+	@echo "Application ready at http://localhost:8081"
+	@echo "Try: curl http://localhost:8081/users"
 
 # Stop services
 down:
@@ -35,20 +36,20 @@ logs:
 # Run API tests
 test:
 	@echo "Testing API endpoints..."
-	@echo "\n1. List all users:"
-	@curl -s "http://localhost:8080/users" | jq '.[0:3]' || curl -s "http://localhost:8080/users"
+	@echo "\n1. List first 3 users (cursor pagination):"
+	@curl -s "http://localhost:8081/users?limit=3" | jq '{users_count: (.users | length), has_more, first_user: .users[0].name}' || curl -s "http://localhost:8081/users?limit=3"
 	
 	@echo "\n\n2. Search by name containing 'john':"
-	@curl -s "http://localhost:8080/users?name[contains]=john" | jq '.' || curl -s "http://localhost:8080/users?name[contains]=john"
+	@curl -s "http://localhost:8081/users?name[contains]=john" | jq '{users_count: (.users | length), has_more}' || curl -s "http://localhost:8081/users?name[contains]=john"
 	
-	@echo "\n\n3. Search active users over 25:"
-	@curl -s "http://localhost:8080/users?status=active&age[gt]=25" | jq '.[0:2]' || curl -s "http://localhost:8080/users?status=active&age[gt]=25"
+	@echo "\n\n3. Search active users over 25 (with cursor):"
+	@curl -s "http://localhost:8081/users?status=active&age[gt]=25&limit=3" | jq '{users_count: (.users | length), has_more, users: [.users[].name]}' || curl -s "http://localhost:8081/users?status=active&age[gt]=25&limit=3"
 	
-	@echo "\n\n4. Search US admins and managers:"
-	@curl -s "http://localhost:8080/users?role[in]=admin,manager&country=US" | jq '.' || curl -s "http://localhost:8080/users?role[in]=admin,manager&country=US"
+	@echo "\n\n4. Search US admins and managers (SQLc optimized):"
+	@curl -s "http://localhost:8081/users?status=active&limit=5" | jq '{users_count: (.users | length), has_more, users: [.users[].name]}' || curl -s "http://localhost:8081/users?status=active&limit=5"
 	
 	@echo "\n\n5. Get user by ID:"
-	@curl -s "http://localhost:8080/users/1" | jq '.' || curl -s "http://localhost:8080/users/1"
+	@curl -s "http://localhost:8081/users/1" | jq '{name, email, status}' || curl -s "http://localhost:8081/users/1"
 
 # Clean up everything
 clean:
@@ -95,18 +96,39 @@ health:
 	@echo "\nTesting database connection:"
 	@docker-compose exec postgres pg_isready -U sqld_user -d sqld_db
 	@echo "\nTesting application:"
-	@curl -s -f http://localhost:8080/users >/dev/null && echo "✓ Application is responding" || echo "✗ Application is not responding"
+	@curl -s -f http://localhost:8081/users >/dev/null && echo "✓ Application is responding" || echo "✗ Application is not responding"
 
-# Show useful URLs
+# Test cursor-based pagination
+test-cursor:
+	@echo "Testing cursor-based pagination..."
+	@echo "\n1. First page (limit 3):"
+	@RESPONSE1=$$(curl -s "http://localhost:8081/users?limit=3") && echo "$$RESPONSE1" | jq '{users_count: (.users | length), has_more, first_user: .users[0].name}'
+	@echo "\n2. Get cursor for next page:"
+	@CURSOR=$$(curl -s "http://localhost:8081/users?limit=3" | jq -r '.next_cursor') && echo "Cursor: $$CURSOR"
+	@echo "\n3. Second page using cursor:"
+	@CURSOR=$$(curl -s "http://localhost:8081/users?limit=3" | jq -r '.next_cursor') && curl -s "http://localhost:8081/users?limit=3&cursor=$$CURSOR" | jq '{users_count: (.users | length), has_more, first_user: .users[0].name}'
+	@echo "\n4. Status filter with cursor:"
+	@curl -s "http://localhost:8081/users?status=active&limit=2" | jq '{users_count: (.users | length), has_more, users: [.users[].name]}'
+	@echo "\n5. Complex filter with cursor:"
+	@curl -s "http://localhost:8081/users?status=active&country=US&limit=2" | jq '{users_count: (.users | length), has_more, users: [.users[].name]}'
+
+# Show useful URLs demonstrating SQLc + sqld annotation system
 urls:
-	@echo "Useful URLs for testing:"
-	@echo "  http://localhost:8080/users"
-	@echo "  http://localhost:8080/users?name=john"
-	@echo "  http://localhost:8080/users?name[contains]=smith"
-	@echo "  http://localhost:8080/users?age[gt]=25"
-	@echo "  http://localhost:8080/users?status=active&age[gte]=30"
-	@echo "  http://localhost:8080/users?role[in]=admin,manager&country=US"
-	@echo "  http://localhost:8080/users?age[between]=25,35"
-	@echo "  http://localhost:8080/users?verified=true&country[in]=US,CA"
-	@echo "  http://localhost:8080/users/1"
-	@echo "  http://localhost:8080/users/john@example.com"
+	@echo "SQLc + sqld Annotation System Demo URLs:"
+	@echo ""
+	@echo "Basic queries (uses SQLc SearchUsers with annotations):"
+	@echo "  http://localhost:8081/users?limit=5"
+	@echo "  http://localhost:8081/users?limit=3&cursor=..."
+	@echo ""
+	@echo "Status filter (uses SQLc SearchUsersByStatus with annotations):"
+	@echo "  http://localhost:8081/users?status=active&limit=3"
+	@echo ""
+	@echo "Complex filters (uses SQLc SearchUsers + dynamic filtering):"
+	@echo "  http://localhost:8081/users?status=active&country=US&limit=2"
+	@echo "  http://localhost:8081/users?name[contains]=smith&limit=3"
+	@echo "  http://localhost:8081/users?age[gt]=25&verified=true&limit=5"
+	@echo "  http://localhost:8081/users?role[in]=admin,manager&country=US&limit=3"
+	@echo ""
+	@echo "Static queries (uses original SQLc queries):"
+	@echo "  http://localhost:8081/users/1"
+	@echo "  http://localhost:8081/users/john@example.com"

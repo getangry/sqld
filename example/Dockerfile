@@ -6,30 +6,35 @@ RUN apk add --no-cache git
 # Set working directory
 WORKDIR /app
 
-# Copy go mod files
-COPY go.mod go.sum ./
-
-# Download dependencies
-RUN go mod download
+# Copy go mod files for all modules
+COPY go.mod ./
+COPY go.sum ./
+COPY example/go.mod example/go.sum ./example/
+COPY adapters/pgx/go.mod ./adapters/pgx/
+COPY adapters/pgx/go.sum ./adapters/pgx/
 
 # Copy source code
 COPY . .
 
+# Change to example directory and download dependencies
+WORKDIR /app/example
+RUN go mod download
+
 # Build the application
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main integration.go
+RUN go build -o /build/main main.go
 
 FROM alpine:latest
 
 # Install ca-certificates for HTTPS
 RUN apk --no-cache add ca-certificates
 
-WORKDIR /root/
+WORKDIR /app
 
 # Copy the binary from builder
-COPY --from=builder /app/main .
+COPY --from=builder /build/main /main
 
 # Expose port
 EXPOSE 8080
 
 # Run the application
-CMD ["./main"]
+CMD ["/main"]

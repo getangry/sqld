@@ -22,6 +22,8 @@ type Querier interface {
 	ListPostsByUser(ctx context.Context, userID int32) ([]Post, error)
 	ListUsers(ctx context.Context) ([]User, error)
 	ListUsersByStatus(ctx context.Context, status pgtype.Text) ([]User, error)
+	SearchUsers(ctx context.Context) ([]User, error)
+	SearchUsersByStatus(ctx context.Context, status pgtype.Text) ([]User, error)
 	UpdatePost(ctx context.Context, arg UpdatePostParams) (Post, error)
 	UpdateUser(ctx context.Context, arg UpdateUserParams) (User, error)
 }

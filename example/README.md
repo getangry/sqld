@@ -124,7 +124,7 @@ config := &sqld.QueryFilterConfig{
 }
 
 // Parse from HTTP request
-where, err := sqld.BuildFromRequest(r, sqld.Postgres, config)
+where, err := sqld.FromRequest(r, sqld.Postgres, config)
 
 // Execute query
 baseQuery := "SELECT * FROM users"
@@ -282,7 +282,7 @@ jsonData, err := json.Marshal(users)
 ```go
 func SearchUsers(w http.ResponseWriter, r *http.Request) {
     config := &sqld.QueryFilterConfig{...}
-    where, err := sqld.BuildFromRequest(r, sqld.Postgres, config)
+    where, err := sqld.FromRequest(r, sqld.Postgres, config)
     // Add business logic filters
     where.IsNull("deleted_at")
     

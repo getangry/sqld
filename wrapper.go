@@ -2,6 +2,7 @@ package sqld
 
 import (
 	"context"
+	"strconv"
 	"strings"
 )
 
@@ -120,10 +121,10 @@ func (eq *EnhancedQueries[T]) PaginationQuery(
 	if limit > 0 {
 		switch eq.dialect {
 		case Postgres:
-			query += " LIMIT $" + string(rune(len(params)+1))
+			query += " LIMIT $" + strconv.Itoa(len(params)+1)
 			params = append(params, limit)
 			if offset > 0 {
-				query += " OFFSET $" + string(rune(len(params)+1))
+				query += " OFFSET $" + strconv.Itoa(len(params)+1)
 				params = append(params, offset)
 			}
 		case MySQL, SQLite:
@@ -187,76 +188,6 @@ func ScanToMap[K comparable, V any](
 	}
 
 	return results, nil
-}
-
-// Query builders for common patterns
-
-// BuildDateRangeQuery adds date range conditions
-func BuildDateRangeQuery(
-	where *WhereBuilder,
-	column string,
-	startDate, endDate interface{},
-) *WhereBuilder {
-	if startDate != nil && endDate != nil {
-		where.Between(column, startDate, endDate)
-	} else if startDate != nil {
-		where.GreaterThan(column, startDate)
-	} else if endDate != nil {
-		where.LessThan(column, endDate)
-	}
-	return where
-}
-
-// BuildStatusFilter adds status filtering with optional exclusions
-func BuildStatusFilter(
-	where *WhereBuilder,
-	column string,
-	include []string,
-	exclude []string,
-) *WhereBuilder {
-	if len(include) > 0 {
-		includeValues := make([]interface{}, len(include))
-		for i, v := range include {
-			includeValues[i] = v
-		}
-		where.In(column, includeValues)
-	}
-
-	if len(exclude) > 0 {
-		for _, status := range exclude {
-			where.NotEqual(column, status)
-		}
-	}
-
-	return where
-}
-
-// BuildFullTextSearch creates a full-text search condition
-func BuildFullTextSearch(
-	where *WhereBuilder,
-	columns []string,
-	searchText string,
-	dialect Dialect,
-) *WhereBuilder {
-	if searchText == "" || len(columns) == 0 {
-		return where
-	}
-
-	// Normalize search text
-	searchPattern := SearchPattern(strings.TrimSpace(searchText), "contains")
-
-	where.Or(func(or ConditionBuilder) {
-		for _, column := range columns {
-			if dialect == Postgres {
-				// Use to_tsvector for better full-text search in Postgres
-				or.Raw("to_tsvector('english', "+column+") @@ plainto_tsquery('english', ?)", searchText)
-			} else {
-				or.ILike(column, searchPattern)
-			}
-		}
-	})
-
-	return where
 }
 
 // Utility functions for working with existing sqlc code

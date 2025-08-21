@@ -3,9 +3,15 @@ module github.com/getangry/sqld/example
 go 1.23
 
 require (
-	github.com/getangry/sqld v0.1.0
+	github.com/getangry/sqld v0.1.1
+	github.com/getangry/sqld/adapters/pgx v0.1.1
 	github.com/gin-gonic/gin v1.10.0
 	github.com/jackc/pgx/v5 v5.5.1
+)
+
+replace (
+	github.com/getangry/sqld => ../
+	github.com/getangry/sqld/adapters/pgx => ../adapters/pgx
 )
 
 require (

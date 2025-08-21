@@ -1,7 +1,6 @@
 package sqld
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -57,6 +56,8 @@ type QueryFilterConfig struct {
 	DateLayout string
 	// MaxFilters limits the number of filters to prevent abuse
 	MaxFilters int
+	// OrderByConfig configures sorting behavior
+	OrderByConfig *OrderByConfig
 }
 
 // DefaultQueryFilterConfig returns a sensible default configuration
@@ -67,6 +68,7 @@ func DefaultQueryFilterConfig() *QueryFilterConfig {
 		DefaultOperator: OpEq,
 		DateLayout:      "2006-01-02",
 		MaxFilters:      50,
+		OrderByConfig:   DefaultOrderByConfig(),
 	}
 }
 
@@ -478,8 +480,8 @@ func applyFilter(filter Filter, builder *WhereBuilder) error {
 	return nil
 }
 
-// BuildFromRequest is a convenience function that creates a WhereBuilder from HTTP request
-func BuildFromRequest(r *http.Request, dialect Dialect, config *QueryFilterConfig) (*WhereBuilder, error) {
+// FromRequest creates a WhereBuilder from HTTP request
+func FromRequest(r *http.Request, dialect Dialect, config *QueryFilterConfig) (*WhereBuilder, error) {
 	filters, err := ParseRequest(r, config)
 	if err != nil {
 		return nil, err
@@ -494,8 +496,8 @@ func BuildFromRequest(r *http.Request, dialect Dialect, config *QueryFilterConfi
 	return builder, nil
 }
 
-// BuildFromQueryString is a convenience function that creates a WhereBuilder from query string
-func BuildFromQueryString(queryString string, dialect Dialect, config *QueryFilterConfig) (*WhereBuilder, error) {
+// FromQueryString creates a WhereBuilder from query string
+func FromQueryString(queryString string, dialect Dialect, config *QueryFilterConfig) (*WhereBuilder, error) {
 	filters, err := ParseQueryString(queryString, config)
 	if err != nil {
 		return nil, err
@@ -510,11 +512,75 @@ func BuildFromQueryString(queryString string, dialect Dialect, config *QueryFilt
 	return builder, nil
 }
 
-// FilterToJSON converts filters to JSON for debugging/logging
-func FiltersToJSON(filters []Filter) (string, error) {
-	data, err := json.MarshalIndent(filters, "", "  ")
-	if err != nil {
-		return "", err
+// ParseSortFromRequest extracts sorting parameters from HTTP request
+func ParseSortFromRequest(r *http.Request, config *QueryFilterConfig) (*OrderByBuilder, error) {
+	if config == nil {
+		config = DefaultQueryFilterConfig()
 	}
-	return string(data), nil
+	if config.OrderByConfig == nil {
+		config.OrderByConfig = DefaultOrderByConfig()
+	}
+
+	return ParseSortFromValues(r.URL.Query(), config)
+}
+
+// ParseSortFromValues extracts sorting parameters from url.Values
+func ParseSortFromValues(values url.Values, config *QueryFilterConfig) (*OrderByBuilder, error) {
+	if config == nil {
+		config = DefaultQueryFilterConfig()
+	}
+	if config.OrderByConfig == nil {
+		config.OrderByConfig = DefaultOrderByConfig()
+	}
+
+	var sortFields []SortField
+
+	// Common sort parameter names to check
+	sortParams := []string{"sort", "sort_by", "order_by", "orderby", "order"}
+
+	for _, param := range sortParams {
+		if values.Has(param) {
+			// Get all values for this parameter
+			for _, value := range values[param] {
+				fields := ParseSortFields(value)
+				sortFields = append(sortFields, fields...)
+			}
+			break // Use the first found sort parameter
+		}
+	}
+
+	// Check for individual field sorting like: ?sort_name=desc&sort_email=asc
+	// but exclude standard sort parameter names
+	standardSortParams := map[string]bool{
+		"sort": true, "sort_by": true, "order_by": true, "orderby": true, "order": true,
+	}
+
+	for key, vals := range values {
+		if strings.HasPrefix(key, "sort_") && len(vals) > 0 && !standardSortParams[key] {
+			fieldName := strings.TrimPrefix(key, "sort_")
+			direction := ParseSortDirection(vals[0])
+			sortFields = append(sortFields, SortField{
+				Field:     fieldName,
+				Direction: direction,
+			})
+		}
+	}
+
+	// Validate and build the order by clause
+	return config.OrderByConfig.ValidateAndBuild(sortFields)
+}
+
+// FromRequestWithSort parses both filters and sorting from HTTP request
+func FromRequestWithSort(r *http.Request, dialect Dialect, config *QueryFilterConfig) (*WhereBuilder, *OrderByBuilder, error) {
+	where, err := FromRequest(r, dialect, config)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	orderBy, err := ParseSortFromRequest(r, config)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return where, orderBy, nil
 }

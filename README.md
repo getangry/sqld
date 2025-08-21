@@ -15,11 +15,13 @@ sqld is a powerful, type-safe dynamic query builder designed to work seamlessly 
 - [Quick Start](#quick-start)
 - [Core Concepts](#core-concepts)
 - [Usage Examples](#usage-examples)
+  - [SQLc Annotation System](#sqlc-annotation-system)
   - [Basic WHERE Conditions](#basic-where-conditions)
   - [Complex Conditions](#complex-conditions)
   - [Integration with SQLc](#integration-with-sqlc)
   - [HTTP Query Parameter Filtering](#http-query-parameter-filtering)
-  - [Pagination](#pagination)
+  - [Cursor-based Pagination](#cursor-based-pagination)
+  - [Dynamic Sorting/ORDER BY](#dynamic-sortingorder-by)
   - [Search Filters](#search-filters)
 - [API Reference](#api-reference)
 - [Database Support](#database-support)
@@ -32,9 +34,12 @@ sqld is a powerful, type-safe dynamic query builder designed to work seamlessly 
 - 🔒 **Type-safe** - Maintains type safety while building dynamic queries
 - 🗄️ **Multi-database support** - Works with PostgreSQL, MySQL, and SQLite
 - 🛡️ **SQL injection prevention** - All parameters are properly escaped and parameterized
-- 🔧 **SQLc integration** - Seamlessly enhances existing sqlc-generated code
+- 🚀 **SQLc annotation system** - Enhance SQLc queries with runtime annotations (`/* sqld:where */`, `/* sqld:cursor */`, `/* sqld:orderby */`, `/* sqld:limit */`)
+- 🔧 **SQLc integration** - Seamlessly enhances existing sqlc-generated code without rewrites
 - 🌐 **HTTP query parameter parsing** - Auto-convert URL query strings to SQL conditions
-- 🎯 **Zero dependencies** - Only depends on standard library (test dependencies excluded)
+- 📄 **Cursor-based pagination** - Efficient pagination that scales to millions of records
+- 🎯 **Go best practices** - Idiomatic function names and patterns
+- 📊 **Dynamic sorting** - Support for ORDER BY clauses with multiple fields and directions
 - ⚡ **High performance** - Minimal overhead, no reflection or runtime parsing
 - 🧩 **Composable** - Build complex queries by combining simple conditions
 
@@ -165,7 +170,7 @@ func SearchUsers(w http.ResponseWriter, r *http.Request) {
     }
 
     // Parse filters from URL: /users?name[contains]=john&age[gte]=18&status=active
-    where, err := sqld.BuildFromRequest(r, sqld.Postgres, config)
+    where, err := sqld.FromRequest(r, sqld.Postgres, config)
     if err != nil {
         http.Error(w, "Invalid filters", http.StatusBadRequest)
         return
@@ -198,6 +203,169 @@ func SearchUsers(w http.ResponseWriter, r *http.Request) {
 - No performance overhead for static queries
 
 ## Usage Examples
+
+### SQLc Annotation System
+
+sqld provides a powerful annotation system that enhances SQLc queries with dynamic capabilities at runtime without requiring rewrites. Simply add special comments to your SQLc queries and sqld will process them dynamically.
+
+#### Four Core Annotations
+
+- `/* sqld:where */` - Injects dynamic WHERE conditions
+- `/* sqld:cursor */` - Enables cursor-based pagination
+- `/* sqld:orderby */` - Adds dynamic ORDER BY clauses
+- `/* sqld:limit */` - Adds LIMIT clause
+
+#### Basic SQLc Query Enhancement
+
+```sql
+-- name: SearchUsers :many
+SELECT id, name, email, age, status, role, country, verified, created_at, updated_at, deleted_at
+FROM users
+WHERE deleted_at IS NULL /* sqld:where */
+ORDER BY created_at DESC, id DESC /* sqld:cursor */ /* sqld:orderby */ /* sqld:limit */;
+```
+
+```go
+// Use SQLc-generated types and methods
+queries := db.New(conn)
+originalSQL := db.SearchUsers // SQLc-generated constant
+
+// Create dynamic conditions
+where := sqld.NewWhereBuilder(sqld.Postgres)
+where.Equal("status", "active")
+where.GreaterThan("age", 18)
+
+// Create cursor for pagination
+cursor := &sqld.Cursor{
+    CreatedAt: "2024-01-15T10:30:00Z",
+    ID:        12,
+}
+
+// Create dynamic sorting
+orderBy := sqld.NewOrderByBuilder()
+orderBy.Desc("updated_at").Asc("name")
+
+// Process the annotated query
+finalSQL, params, err := sqld.SearchQuery(
+    originalSQL,
+    sqld.Postgres,
+    where,
+    cursor,
+    orderBy, // Dynamic sorting
+    10,      // limit
+)
+// Result: Enhanced SQL with dynamic WHERE, cursor pagination, and LIMIT
+
+// Execute with your database driver
+rows, err := conn.Query(ctx, finalSQL, params...)
+```
+
+#### Complete REST API Example
+
+```go
+func (h *Handler) SearchUsers(w http.ResponseWriter, r *http.Request) {
+    // Parse query parameters
+    config := &sqld.QueryFilterConfig{
+        AllowedFields: map[string]bool{
+            "name": true, "status": true, "country": true,
+        },
+        MaxFilters: 10,
+    }
+    
+    where, err := sqld.FromRequest(r, sqld.Postgres, config)
+    if err != nil {
+        http.Error(w, "Invalid filters", http.StatusBadRequest)
+        return
+    }
+    
+    // Parse cursor and limit from query params
+    var cursor *sqld.Cursor
+    if cursorStr := r.URL.Query().Get("cursor"); cursorStr != "" {
+        cursor, _ = sqld.DecodeCursor(cursorStr)
+    }
+    
+    limit := 20
+    if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+        if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
+            limit = l
+        }
+    }
+    
+    // Use SQLc annotation system
+    finalSQL, params, err := sqld.SearchQuery(
+        db.SearchUsers,
+        sqld.Postgres,
+        where,
+        cursor,
+        limit,
+    )
+    if err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
+    
+    // Execute query
+    rows, err := h.db.Query(ctx, finalSQL, params...)
+    if err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
+    defer rows.Close()
+    
+    var users []User
+    var nextCursor string
+    
+    for rows.Next() {
+        var u User
+        err := rows.Scan(&u.ID, &u.Name, &u.Email, &u.Age, &u.Status, 
+                        &u.Role, &u.Country, &u.Verified, &u.CreatedAt, 
+                        &u.UpdatedAt, &u.DeletedAt)
+        if err != nil {
+            http.Error(w, err.Error(), http.StatusInternalServerError)
+            return
+        }
+        users = append(users, u)
+        
+        // Generate next cursor from last record
+        if len(users) == limit {
+            nextCursor = sqld.EncodeCursor(u.CreatedAt, u.ID)
+        }
+    }
+    
+    response := struct {
+        Users      []User `json:"users"`
+        NextCursor string `json:"next_cursor,omitempty"`
+    }{
+        Users:      users,
+        NextCursor: nextCursor,
+    }
+    
+    json.NewEncoder(w).Encode(response)
+}
+```
+
+#### Annotation Processing
+
+The annotation processor intelligently combines all conditions:
+
+1. **Base WHERE clause**: Your existing SQLc query conditions
+2. **Dynamic filters**: Conditions from HTTP query parameters
+3. **Cursor conditions**: For pagination
+4. **LIMIT clause**: For result size control
+
+```sql
+-- Original SQLc query:
+WHERE deleted_at IS NULL /* sqld:where */
+ORDER BY created_at DESC, id DESC /* sqld:cursor */ /* sqld:limit */
+
+-- After processing becomes:
+WHERE deleted_at IS NULL 
+  AND status = $1 
+  AND age > $2 
+  AND (created_at < $3 OR (created_at = $3 AND id < $4))
+ORDER BY created_at DESC, id DESC 
+LIMIT $5
+```
 
 ### Basic WHERE Conditions
 
@@ -351,7 +519,7 @@ func GetUsers(w http.ResponseWriter, r *http.Request) {
     }
 
     // Parse query parameters into WHERE conditions
-    where, err := sqld.BuildFromRequest(r, sqld.Postgres, config)
+    where, err := sqld.FromRequest(r, sqld.Postgres, config)
     if err != nil {
         http.Error(w, "Invalid filters", http.StatusBadRequest)
         return
@@ -455,7 +623,7 @@ func (api *UserAPI) SearchUsers(w http.ResponseWriter, r *http.Request) {
     }
 
     // Parse filters from query parameters
-    where, err := sqld.BuildFromRequest(r, sqld.Postgres, config)
+    where, err := sqld.FromRequest(r, sqld.Postgres, config)
     if err != nil {
         http.Error(w, fmt.Sprintf("Invalid filters: %v", err), http.StatusBadRequest)
         return
@@ -515,7 +683,7 @@ You can also enhance existing sqlc queries:
 query := "SELECT * FROM users WHERE role = $1"
 
 // Add dynamic filters from request
-where, _ := sqld.BuildFromRequest(r, sqld.Postgres, config)
+where, _ := sqld.FromRequest(r, sqld.Postgres, config)
 enhancedQuery, params := sqld.InjectWhereCondition(query, where, sqld.Postgres)
 
 // Combine parameters
@@ -523,41 +691,317 @@ allParams := append([]interface{}{"admin"}, params...)
 // Result: SELECT * FROM users WHERE role = $1 AND name = $2 AND age > $3
 ```
 
-### Pagination
+### Cursor-based Pagination
+
+sqld uses cursor-based pagination for efficient pagination that scales to millions of records, avoiding the performance issues of OFFSET-based pagination.
+
+#### Basic Cursor Pagination
 
 ```go
-func (s *UserService) GetUsersPage(ctx context.Context, page, pageSize int) ([]User, error) {
-    baseQuery := `SELECT * FROM users`
+// Create cursor from last record
+type Cursor struct {
+    CreatedAt interface{} `json:"created_at"`
+    ID        int32       `json:"id"`
+}
+
+cursor := &sqld.Cursor{
+    CreatedAt: "2024-01-15T10:30:00Z",
+    ID:        12,
+}
+
+// Use with SQLc annotation
+finalSQL, params, err := sqld.SearchQuery(
+    db.SearchUsers,
+    sqld.Postgres,
+    where,
+    cursor,
+    20, // limit
+)
+```
+
+#### REST API Implementation
+
+```go
+func PaginatedUsers(w http.ResponseWriter, r *http.Request) {
+    // Parse cursor from query parameter
+    var cursor *sqld.Cursor
+    if cursorStr := r.URL.Query().Get("cursor"); cursorStr != "" {
+        cursor, _ = sqld.DecodeCursor(cursorStr)
+    }
     
+    // Parse limit
+    limit := 20
+    if l, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && l > 0 {
+        limit = l
+    }
+    
+    // Execute query with cursor
     where := sqld.NewWhereBuilder(sqld.Postgres)
-    where.Equal("status", "active")
+    where.IsNull("deleted_at")
     
-    // Add pagination
-    offset := (page - 1) * pageSize
-    query, params := s.enhanced.PaginationQuery(
-        baseQuery, 
-        where, 
-        pageSize, 
-        offset, 
-        "created_at DESC",
+    finalSQL, params, err := sqld.SearchQuery(
+        db.SearchUsers,
+        sqld.Postgres, 
+        where,
+        cursor,
+        limit,
     )
     
-    // Execute query
-    rows, err := s.enhanced.DB().Query(ctx, query, params...)
-    if err != nil {
-        return nil, err
-    }
-    defer rows.Close()
+    rows, err := db.Query(ctx, finalSQL, params...)
+    // ... scan results
     
-    return sqld.ScanToSlice(rows, scanUser)
+    // Generate next cursor from last record
+    var nextCursor string
+    if len(users) == limit {
+        lastUser := users[len(users)-1]
+        nextCursor = sqld.EncodeCursor(lastUser.CreatedAt, lastUser.ID)
+    }
+    
+    response := PaginatedResponse{
+        Users:      users,
+        NextCursor: nextCursor,
+        HasMore:    len(users) == limit,
+    }
+    
+    json.NewEncoder(w).Encode(response)
 }
 ```
+
+#### Cursor Encoding/Decoding
+
+```go
+// Encode cursor for API response
+cursorStr := sqld.EncodeCursor(record.CreatedAt, record.ID)
+// Returns: base64-encoded JSON like "eyJjcmVhdGVkX2F0IjoiMjAyNC0wMS0xNVQxMDozMDowMFoiLCJpZCI6MTJ9"
+
+// Decode cursor from request
+cursor, err := sqld.DecodeCursor(cursorStr)
+if err != nil {
+    // Invalid cursor
+}
+```
+
+#### Why Cursor-based Pagination?
+
+- **Consistent results**: No duplicate or missing records when data changes
+- **Performance**: No OFFSET scanning, direct index usage
+- **Scalability**: Works efficiently with millions of records
+- **Real-time friendly**: Handles concurrent insertions/deletions gracefully
+
+### Dynamic Sorting/ORDER BY
+
+sqld provides comprehensive support for dynamic ORDER BY clauses, allowing you to build flexible sorting logic that integrates seamlessly with SQLc queries.
+
+#### Basic OrderByBuilder Usage
+
+```go
+// Create an OrderByBuilder
+orderBy := sqld.NewOrderByBuilder()
+
+// Add sort fields with different directions
+orderBy.Desc("created_at")
+orderBy.Asc("name")
+orderBy.Desc("priority")
+
+// Generate ORDER BY clause
+fmt.Println(orderBy.BuildWithPrefix())
+// Output: ORDER BY created_at DESC, name ASC, priority DESC
+
+// Check if any fields are defined
+if orderBy.HasFields() {
+    sql := orderBy.Build() // Without "ORDER BY" prefix
+}
+```
+
+#### Supported Sort Formats
+
+sqld supports multiple syntax formats for specifying sort fields:
+
+```go
+// 1. Colon syntax: "field:direction"
+fields1 := sqld.ParseSortFields("name:desc,email:asc,created_at:desc")
+
+// 2. Prefix syntax: "-field" (desc), "+field" (asc)
+fields2 := sqld.ParseSortFields("-name,+email,-created_at")
+
+// 3. Mixed syntax
+fields3 := sqld.ParseSortFields("name:desc,+email,-created_at")
+
+// 4. Array format
+fields4 := sqld.ParseSortFields([]string{"name:desc", "email:asc"})
+
+// All produce the same result:
+// [{Field:name Direction:DESC} {Field:email Direction:ASC} {Field:created_at Direction:DESC}]
+```
+
+#### HTTP Query Parameter Integration
+
+Parse sorting from HTTP requests with multiple parameter formats:
+
+```go
+// 1. Standard sort parameter: ?sort=name:desc,email:asc
+req, _ := http.NewRequest("GET", "/users?sort=name:desc,email:asc", nil)
+
+config := &sqld.QueryFilterConfig{
+    OrderByConfig: &sqld.OrderByConfig{
+        AllowedFields: map[string]bool{
+            "name": true, "email": true, "created_at": true,
+        },
+        MaxSortFields: 3,
+    },
+}
+
+orderBy, err := sqld.ParseSortFromRequest(req, config)
+if err != nil {
+    // Handle error
+}
+
+// 2. Individual field parameters: ?sort_name=desc&sort_email=asc
+values := url.Values{
+    "sort_name":  []string{"desc"},
+    "sort_email": []string{"asc"},
+}
+orderBy2, _ := sqld.ParseSortFromValues(values, config)
+
+// 3. Alternative parameter names: sort_by, order_by, orderby, order
+// All of these work: ?sort_by=name:desc, ?order_by=name:desc, etc.
+```
+
+#### Security and Validation
+
+Control which fields can be sorted and how:
+
+```go
+config := &sqld.OrderByConfig{
+    // Whitelist allowed fields (security)
+    AllowedFields: map[string]bool{
+        "name":       true,
+        "email":      true,
+        "created_at": true,
+        "updated_at": true,
+    },
+    
+    // Map API field names to database columns
+    FieldMappings: map[string]string{
+        "signup": "created_at",    // ?sort=signup:desc -> ORDER BY created_at DESC
+        "user":   "name",          // ?sort=user:asc -> ORDER BY name ASC
+    },
+    
+    // Limit number of sort fields (prevent abuse)
+    MaxSortFields: 5,
+    
+    // Default sort when no fields specified
+    DefaultSort: []sqld.SortField{
+        {"created_at", sqld.SortDesc},
+        {"id", sqld.SortAsc},
+    },
+}
+
+// Validate and build
+fields := []sqld.SortField{
+    {"user", sqld.SortAsc},     // Will be mapped to "name"
+    {"signup", sqld.SortDesc},  // Will be mapped to "created_at"
+}
+
+orderBy, err := config.ValidateAndBuild(fields)
+if err != nil {
+    // Handle validation error (forbidden field, too many fields, etc.)
+}
+
+result := orderBy.Build()
+// Result: "name ASC, created_at DESC"
+```
+
+#### SQLc Annotation Integration
+
+Use the `/* sqld:orderby */` annotation to add dynamic sorting to SQLc queries:
+
+```sql
+-- name: SearchUsers :many
+SELECT id, name, email, status, created_at
+FROM users
+WHERE deleted_at IS NULL /* sqld:where */
+ORDER BY created_at DESC /* sqld:orderby */ /* sqld:limit */;
+```
+
+```go
+// Your existing SQLc query with dynamic sorting
+where := sqld.NewWhereBuilder(sqld.Postgres)
+where.Equal("status", "active")
+
+// Parse sorting from HTTP request
+orderBy, _ := sqld.ParseSortFromRequest(req, config)
+
+// Use SQLc annotation system
+finalSQL, params, err := sqld.SearchQuery(
+    db.SearchUsers,  // SQLc-generated query
+    sqld.Postgres,
+    where,           // Dynamic filters
+    cursor,          // Pagination cursor
+    orderBy,         // Dynamic sorting
+    20,              // Limit
+)
+
+// The annotation processor will:
+// 1. Keep the base ORDER BY: "created_at DESC"
+// 2. Add dynamic sorting: ", name ASC, email DESC"
+// Result: "ORDER BY created_at DESC, name ASC, email DESC"
+```
+
+#### Combined Filtering and Sorting
+
+Parse both filters and sorting from a single HTTP request:
+
+```go
+// Handle: GET /users?status=active&age[gte]=18&sort=name:desc,email:asc
+func SearchUsers(w http.ResponseWriter, r *http.Request) {
+    config := &sqld.QueryFilterConfig{
+        AllowedFields: map[string]bool{
+            "status": true, "age": true,  // For filtering
+        },
+        DefaultOperator: sqld.OpEq,
+        OrderByConfig: &sqld.OrderByConfig{
+            AllowedFields: map[string]bool{
+                "name": true, "email": true, "created_at": true, // For sorting
+            },
+            MaxSortFields: 3,
+        },
+    }
+    
+    // Parse both filters and sorting in one call
+    where, orderBy, err := sqld.FromRequestWithSort(r, sqld.Postgres, config)
+    if err != nil {
+        http.Error(w, "Invalid parameters", http.StatusBadRequest)
+        return
+    }
+    
+    // Use with SQLc annotations
+    finalSQL, params, err := sqld.SearchQuery(
+        db.SearchUsers,
+        sqld.Postgres,
+        where,
+        nil,     // No cursor
+        orderBy, // Dynamic sorting
+        50,      // Limit
+    )
+    
+    // Execute query...
+}
+```
+
+#### Best Practices for Sorting
+
+1. **Always whitelist allowed fields** to prevent SQL injection
+2. **Set reasonable limits** on the number of sort fields
+3. **Provide sensible defaults** for when no sort is specified
+4. **Use field mappings** to decouple API field names from database columns
+5. **Consider database indexes** for frequently sorted columns
 
 ### Search Filters
 
 ```go
 // Conditional filtering - only add conditions if values are provided
-func BuildUserFilter(filter UserSearchRequest) *sqld.WhereBuilder {
+func UserFilter(filter UserSearchRequest) *sqld.WhereBuilder {
     where := sqld.NewWhereBuilder(sqld.Postgres)
     
     // ConditionalWhere only adds the condition if the value is not empty/nil
@@ -566,24 +1010,36 @@ func BuildUserFilter(filter UserSearchRequest) *sqld.WhereBuilder {
     sqld.ConditionalWhere(where, "country", filter.Country)
     
     // Date range filtering
-    sqld.BuildDateRangeQuery(where, "created_at", filter.StartDate, filter.EndDate)
+    if filter.StartDate != nil && filter.EndDate != nil {
+        where.Between("created_at", filter.StartDate, filter.EndDate)
+    } else if filter.StartDate != nil {
+        where.GreaterThan("created_at", filter.StartDate)
+    } else if filter.EndDate != nil {
+        where.LessThan("created_at", filter.EndDate)
+    }
     
-    // Status filtering with exclusions
-    sqld.BuildStatusFilter(
-        where, 
-        "status",
-        filter.IncludeStatuses,  // []string{"active", "pending"}
-        filter.ExcludeStatuses,  // []string{"deleted", "banned"}
-    )
+    // Status filtering with inclusions
+    if len(filter.IncludeStatuses) > 0 {
+        statusValues := make([]interface{}, len(filter.IncludeStatuses))
+        for i, v := range filter.IncludeStatuses {
+            statusValues[i] = v
+        }
+        where.In("status", statusValues)
+    }
+    
+    // Exclude certain statuses
+    for _, status := range filter.ExcludeStatuses {
+        where.NotEqual("status", status)
+    }
     
     // Full-text search across multiple columns
     if filter.SearchText != "" {
-        sqld.BuildFullTextSearch(
-            where,
-            []string{"name", "email", "bio"},
-            filter.SearchText,
-            sqld.Postgres,
-        )
+        searchPattern := sqld.SearchPattern(strings.TrimSpace(filter.SearchText), "contains")
+        where.Or(func(or sqld.ConditionBuilder) {
+            or.ILike("name", searchPattern)
+            or.ILike("email", searchPattern) 
+            or.ILike("bio", searchPattern)
+        })
     }
     
     return where
@@ -666,9 +1122,32 @@ sql, params := combined.Build()
 | `ConditionalWhere(builder, column, value)` | Adds condition only if value is not empty/nil |
 | `CombineConditions(dialect, builders...)` | Combines multiple WHERE builders |
 | `InjectWhereCondition(query, builder, dialect)` | Injects conditions into existing SQL |
-| `BuildDateRangeQuery(builder, column, start, end)` | Adds date range conditions |
-| `BuildStatusFilter(builder, column, include, exclude)` | Adds status filtering |
-| `BuildFullTextSearch(builder, columns, text, dialect)` | Adds full-text search |
+| `SearchQuery(sql, dialect, where, cursor, orderBy, limit, params...)` | Processes SQLc queries with annotations |
+
+### OrderByBuilder Methods
+
+| Method | Description | Example |
+|--------|-------------|---------|
+| `NewOrderByBuilder()` | Creates a new OrderByBuilder | `orderBy := sqld.NewOrderByBuilder()` |
+| `Add(field, direction)` | Adds a sort field with direction | `orderBy.Add("name", sqld.SortAsc)` |
+| `Asc(field)` | Adds ascending sort field | `orderBy.Asc("name")` |
+| `Desc(field)` | Adds descending sort field | `orderBy.Desc("created_at")` |
+| `Clear()` | Removes all sort fields | `orderBy.Clear()` |
+| `HasFields()` | Checks if any fields are defined | `if orderBy.HasFields() { ... }` |
+| `GetFields()` | Returns copy of sort fields | `fields := orderBy.GetFields()` |
+| `Build()` | Generates ORDER BY clause | `sql := orderBy.Build()` |
+| `BuildWithPrefix()` | Generates with "ORDER BY" prefix | `sql := orderBy.BuildWithPrefix()` |
+
+### Sorting Functions
+
+| Function | Description |
+|----------|-------------|
+| `ParseSortFields(input)` | Parses sort fields from string or array |
+| `ParseSortFromRequest(request, config)` | Extracts sorting from HTTP request |
+| `ParseSortFromValues(values, config)` | Extracts sorting from url.Values |
+| `FromRequestWithSort(request, dialect, config)` | Parses both filters and sorting |
+| `SortFieldFromString(s)` | Parses single sort field from string |
+| `ParseSortDirection(dir)` | Converts string to SortDirection |
 
 ### EnhancedQueries Methods
 
@@ -676,8 +1155,6 @@ sql, params := combined.Build()
 |--------|-------------|
 | `DynamicQuery(ctx, baseQuery, where, scanFn)` | Executes a dynamic query with conditions |
 | `DynamicQueryRow(ctx, baseQuery, where)` | Executes a query returning single row |
-| `SearchQuery(baseQuery, columns, text, filters)` | Builds a search query |
-| `PaginationQuery(baseQuery, where, limit, offset, orderBy)` | Adds pagination to query |
 
 ### QueryFilter Functions
 
@@ -686,8 +1163,8 @@ sql, params := combined.Build()
 | `ParseQueryString(queryString, config)` | Parses URL query string into Filter objects |
 | `ParseRequest(request, config)` | Parses HTTP request query parameters into filters |
 | `ParseURLValues(values, config)` | Parses url.Values into Filter objects |
-| `BuildFromRequest(request, dialect, config)` | One-step: HTTP request → WhereBuilder |
-| `BuildFromQueryString(queryString, dialect, config)` | One-step: query string → WhereBuilder |
+| `FromRequest(request, dialect, config)` | One-step: HTTP request → WhereBuilder |
+| `FromQueryString(queryString, dialect, config)` | One-step: query string → WhereBuilder |
 | `ApplyFiltersToBuilder(filters, builder)` | Applies parsed filters to WhereBuilder |
 | `MapOperator(opString)` | Converts string to Operator constant |
 | `DefaultQueryFilterConfig()` | Returns default configuration |
@@ -729,7 +1206,7 @@ sql, params := combined.Build()
 Always validate user input before building queries:
 
 ```go
-func BuildFilter(userInput UserInput) (*sqld.WhereBuilder, error) {
+func Filter(userInput UserInput) (*sqld.WhereBuilder, error) {
     // Validate input first
     if err := userInput.Validate(); err != nil {
         return nil, err

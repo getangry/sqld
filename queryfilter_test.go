@@ -334,10 +334,10 @@ func TestApplyFiltersToBuilder(t *testing.T) {
 	}
 }
 
-func TestBuildFromQueryString(t *testing.T) {
+func TestFromQueryString(t *testing.T) {
 	queryString := "name=john&age[gt]=18&status[in]=active,pending"
 
-	builder, err := BuildFromQueryString(queryString, Postgres, DefaultQueryFilterConfig())
+	builder, err := FromQueryString(queryString, Postgres, DefaultQueryFilterConfig())
 	require.NoError(t, err)
 
 	sql, params := builder.Build()
@@ -373,12 +373,12 @@ func TestBuildFromQueryString(t *testing.T) {
 	assert.True(t, containsPending, "Should contain 'pending' parameter")
 }
 
-func TestBuildFromRequest(t *testing.T) {
+func TestFromRequest(t *testing.T) {
 	req, err := http.NewRequest("GET", "/users?name=john&age[gte]=21&email[contains]=example", nil)
 	require.NoError(t, err)
 
 	config := DefaultQueryFilterConfig()
-	builder, err := BuildFromRequest(req, Postgres, config)
+	builder, err := FromRequest(req, Postgres, config)
 	require.NoError(t, err)
 
 	sql, params := builder.Build()
@@ -469,7 +469,7 @@ func TestComplexQueryFiltering(t *testing.T) {
 		MaxFilters:      20,
 	}
 
-	builder, err := BuildFromQueryString(queryString, Postgres, config)
+	builder, err := FromQueryString(queryString, Postgres, config)
 	require.NoError(t, err)
 
 	sql, params := builder.Build()
@@ -515,17 +515,4 @@ func TestComplexQueryFiltering(t *testing.T) {
 	assert.True(t, containsActive, "Should contain 'active' parameter")
 	assert.True(t, containsPending, "Should contain 'pending' parameter")
 	assert.True(t, containsDate, "Should contain '2024-01-01' parameter")
-}
-
-func TestFiltersToJSON(t *testing.T) {
-	filters := []Filter{
-		{Field: "name", Operator: OpEq, Value: "john"},
-		{Field: "age", Operator: OpGt, Value: 18},
-	}
-
-	jsonStr, err := FiltersToJSON(filters)
-	assert.NoError(t, err)
-	assert.Contains(t, jsonStr, `"field": "name"`)
-	assert.Contains(t, jsonStr, `"operator": "="`)
-	assert.Contains(t, jsonStr, `"value": "john"`)
 }

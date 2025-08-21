@@ -18,7 +18,6 @@ const (
 
 // DBTX is the interface that wraps the basic database operations
 type DBTX interface {
-	Exec(ctx context.Context, sql string, arguments ...interface{}) error
 	Query(ctx context.Context, sql string, args ...interface{}) (Rows, error)
 	QueryRow(ctx context.Context, sql string, args ...interface{}) Row
 }

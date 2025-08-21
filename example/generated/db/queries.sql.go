@@ -335,6 +335,84 @@ func (q *Queries) ListUsersByStatus(ctx context.Context, status pgtype.Text) ([]
 	return items, nil
 }
 
+const SearchUsers = `-- name: SearchUsers :many
+SELECT id, name, email, age, status, role, country, verified, created_at, updated_at, deleted_at
+FROM users
+WHERE deleted_at IS NULL /* sqld:where */
+ORDER BY created_at DESC, id DESC /* sqld:cursor */ /* sqld:limit */
+`
+
+func (q *Queries) SearchUsers(ctx context.Context) ([]User, error) {
+	rows, err := q.db.Query(ctx, SearchUsers)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []User{}
+	for rows.Next() {
+		var i User
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Email,
+			&i.Age,
+			&i.Status,
+			&i.Role,
+			&i.Country,
+			&i.Verified,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DeletedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const SearchUsersByStatus = `-- name: SearchUsersByStatus :many
+SELECT id, name, email, age, status, role, country, verified, created_at, updated_at, deleted_at
+FROM users
+WHERE status = $1 AND deleted_at IS NULL /* sqld:where */
+ORDER BY created_at DESC, id DESC /* sqld:cursor */ /* sqld:limit */
+`
+
+func (q *Queries) SearchUsersByStatus(ctx context.Context, status pgtype.Text) ([]User, error) {
+	rows, err := q.db.Query(ctx, SearchUsersByStatus, status)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []User{}
+	for rows.Next() {
+		var i User
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Email,
+			&i.Age,
+			&i.Status,
+			&i.Role,
+			&i.Country,
+			&i.Verified,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DeletedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const UpdatePost = `-- name: UpdatePost :one
 UPDATE posts
 SET title = $2, content = $3, published = $4, category = $5, tags = $6, updated_at = NOW()

@@ -9,6 +9,12 @@ FROM users
 WHERE deleted_at IS NULL
 ORDER BY created_at DESC;
 
+-- name: SearchUsers :many
+SELECT id, name, email, age, status, role, country, verified, created_at, updated_at, deleted_at
+FROM users
+WHERE deleted_at IS NULL /* sqld:where */
+ORDER BY created_at DESC, id DESC /* sqld:cursor */ /* sqld:limit */;
+
 -- name: CreateUser :one
 INSERT INTO users (name, email, age, status, role, country, verified)
 VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -33,6 +39,12 @@ SELECT id, name, email, age, status, role, country, verified, created_at, update
 FROM users
 WHERE status = $1 AND deleted_at IS NULL
 ORDER BY created_at DESC;
+
+-- name: SearchUsersByStatus :many
+SELECT id, name, email, age, status, role, country, verified, created_at, updated_at, deleted_at
+FROM users
+WHERE status = $1 AND deleted_at IS NULL /* sqld:where */
+ORDER BY created_at DESC, id DESC /* sqld:cursor */ /* sqld:limit */;
 
 -- name: GetPost :one
 SELECT id, user_id, title, content, published, category, tags, created_at, updated_at
