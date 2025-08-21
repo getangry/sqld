@@ -18,6 +18,7 @@ sqld is a powerful, type-safe dynamic query builder designed to work seamlessly 
   - [Basic WHERE Conditions](#basic-where-conditions)
   - [Complex Conditions](#complex-conditions)
   - [Integration with SQLc](#integration-with-sqlc)
+  - [HTTP Query Parameter Filtering](#http-query-parameter-filtering)
   - [Pagination](#pagination)
   - [Search Filters](#search-filters)
 - [API Reference](#api-reference)
@@ -32,6 +33,7 @@ sqld is a powerful, type-safe dynamic query builder designed to work seamlessly 
 - 🗄️ **Multi-database support** - Works with PostgreSQL, MySQL, and SQLite
 - 🛡️ **SQL injection prevention** - All parameters are properly escaped and parameterized
 - 🔧 **SQLc integration** - Seamlessly enhances existing sqlc-generated code
+- 🌐 **HTTP query parameter parsing** - Auto-convert URL query strings to SQL conditions
 - 🎯 **Zero dependencies** - Only depends on standard library (test dependencies excluded)
 - ⚡ **High performance** - Minimal overhead, no reflection or runtime parsing
 - 🧩 **Composable** - Build complex queries by combining simple conditions
@@ -249,6 +251,199 @@ enhancedQuery, params := sqld.InjectWhereCondition(originalQuery, where, sqld.Po
 allParams := append([]interface{}{"admin"}, params...)
 ```
 
+### HTTP Query Parameter Filtering
+
+sqld includes a powerful queryfilter package that automatically converts HTTP query parameters into SQL WHERE conditions. This is perfect for building REST APIs with dynamic filtering.
+
+#### Basic Query Parameter Parsing
+
+```go
+// Handle: GET /users?name=john&age[gt]=18&status[in]=active,verified
+func GetUsers(w http.ResponseWriter, r *http.Request) {
+    // Configure allowed filters
+    config := &sqld.QueryFilterConfig{
+        AllowedFields: map[string]bool{
+            "name":   true,
+            "age":    true, 
+            "status": true,
+            "email":  true,
+        },
+        MaxFilters: 10,
+    }
+
+    // Parse query parameters into WHERE conditions
+    where, err := sqld.BuildFromRequest(r, sqld.Postgres, config)
+    if err != nil {
+        http.Error(w, "Invalid filters", http.StatusBadRequest)
+        return
+    }
+
+    // Generate SQL
+    baseQuery := "SELECT * FROM users"
+    finalQuery, params := sqld.InjectWhereCondition(baseQuery, where, sqld.Postgres)
+    // Result: SELECT * FROM users WHERE name = $1 AND age > $2 AND status IN ($3, $4)
+    
+    // Execute query with your database
+    rows, err := db.Query(ctx, finalQuery, params...)
+}
+```
+
+#### Supported Query Syntax
+
+sqld supports multiple syntax styles for maximum flexibility:
+
+**Bracket Syntax:**
+```
+GET /users?name[eq]=john&age[gt]=18&email[contains]=example.com
+```
+
+**Underscore Syntax:**
+```
+GET /users?name_eq=john&age_gt=18&email_contains=example.com
+```
+
+**Mixed Syntax:**
+```
+GET /users?name=john&age[gt]=18&email_contains=example.com
+```
+
+#### Available Operators
+
+| Operator | Description | Example |
+|----------|-------------|---------|
+| `eq` or `=` | Equality | `name=john` |
+| `ne` or `!=` | Not equal | `status[ne]=deleted` |
+| `gt` | Greater than | `age[gt]=18` |
+| `gte` | Greater than or equal | `age[gte]=21` |
+| `lt` | Less than | `price[lt]=100` |
+| `lte` | Less than or equal | `price[lte]=50` |
+| `like` | SQL LIKE | `name[like]=%john%` |
+| `ilike` | Case-insensitive LIKE | `email[ilike]=%@GMAIL.COM` |
+| `contains` | Text contains | `description[contains]=urgent` |
+| `startswith` | Text starts with | `name[startswith]=admin` |
+| `endswith` | Text ends with | `email[endswith]=.com` |
+| `between` | Between two values | `age[between]=18,65` |
+| `in` | In array | `role[in]=admin,user,manager` |
+| `notin` | Not in array | `status[notin]=deleted,banned` |
+| `isnull` | Is NULL | `deleted_at[isnull]=true` |
+| `isnotnull` | Is not NULL | `verified_at[isnotnull]=true` |
+
+#### Field Mapping and Security
+
+```go
+config := &sqld.QueryFilterConfig{
+    // Security: Only allow filtering on these fields
+    AllowedFields: map[string]bool{
+        "name":     true,
+        "age":      true,
+        "status":   true,
+        "country":  true,
+    },
+    
+    // Map query param names to database columns
+    FieldMappings: map[string]string{
+        "user_name":    "name",           // ?user_name=john -> WHERE name = $1
+        "user_age":     "age",            // ?user_age=25 -> WHERE age = $1
+        "signup_date":  "created_at",     // ?signup_date=2024-01-01 -> WHERE created_at = $1
+    },
+    
+    // Prevent abuse
+    MaxFilters: 20,
+    DefaultOperator: sqld.OpEq,
+    DateLayout: "2006-01-02",
+}
+```
+
+#### Complete REST API Example
+
+```go
+type UserAPI struct {
+    enhanced *sqld.EnhancedQueries[*db.Queries]
+}
+
+func (api *UserAPI) SearchUsers(w http.ResponseWriter, r *http.Request) {
+    // Configure filtering
+    config := &sqld.QueryFilterConfig{
+        AllowedFields: map[string]bool{
+            "name": true, "email": true, "status": true, 
+            "country": true, "age": true, "created_at": true,
+        },
+        FieldMappings: map[string]string{
+            "signup": "created_at",
+            "active": "status",
+        },
+        MaxFilters: 15,
+    }
+
+    // Parse filters from query parameters
+    where, err := sqld.BuildFromRequest(r, sqld.Postgres, config)
+    if err != nil {
+        http.Error(w, fmt.Sprintf("Invalid filters: %v", err), http.StatusBadRequest)
+        return
+    }
+
+    // Build query
+    baseQuery := `
+        SELECT id, name, email, status, country, age, created_at 
+        FROM users`
+    
+    var users []User
+    err = api.enhanced.DynamicQuery(ctx, baseQuery, where, func(rows sqld.Rows) error {
+        result, err := sqld.ScanToSlice(rows, func(rows sqld.Rows) (User, error) {
+            var u User
+            err := rows.Scan(&u.ID, &u.Name, &u.Email, &u.Status, &u.Country, &u.Age, &u.CreatedAt)
+            return u, err
+        })
+        users = result
+        return err
+    })
+
+    if err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
+
+    json.NewEncoder(w).Encode(users)
+}
+```
+
+#### Query Examples
+
+**Simple Filtering:**
+```
+GET /users?name=john&status=active
+→ WHERE name = $1 AND status = $2
+```
+
+**Complex Filtering:**
+```
+GET /users?age[between]=18,65&country[in]=US,CA,UK&email[contains]=@company.com&created_at[after]=2024-01-01
+→ WHERE age BETWEEN $1 AND $2 AND country IN ($3, $4, $5) AND email ILIKE $6 AND created_at > $7
+```
+
+**Text Search:**
+```
+GET /users?name[contains]=john&email[endswith]=.com&status[ne]=deleted
+→ WHERE name ILIKE $1 AND email ILIKE $2 AND status != $3
+```
+
+#### Integration with Existing Queries
+
+You can also enhance existing sqlc queries:
+
+```go
+// Your existing sqlc query
+query := "SELECT * FROM users WHERE role = $1"
+
+// Add dynamic filters from request
+where, _ := sqld.BuildFromRequest(r, sqld.Postgres, config)
+enhancedQuery, params := sqld.InjectWhereCondition(query, where, sqld.Postgres)
+
+// Combine parameters
+allParams := append([]interface{}{"admin"}, params...)
+// Result: SELECT * FROM users WHERE role = $1 AND name = $2 AND age > $3
+```
+
 ### Pagination
 
 ```go
@@ -404,6 +599,29 @@ sql, params := combined.Build()
 | `DynamicQueryRow(ctx, baseQuery, where)` | Executes a query returning single row |
 | `SearchQuery(baseQuery, columns, text, filters)` | Builds a search query |
 | `PaginationQuery(baseQuery, where, limit, offset, orderBy)` | Adds pagination to query |
+
+### QueryFilter Functions
+
+| Function | Description |
+|----------|-------------|
+| `ParseQueryString(queryString, config)` | Parses URL query string into Filter objects |
+| `ParseRequest(request, config)` | Parses HTTP request query parameters into filters |
+| `ParseURLValues(values, config)` | Parses url.Values into Filter objects |
+| `BuildFromRequest(request, dialect, config)` | One-step: HTTP request → WhereBuilder |
+| `BuildFromQueryString(queryString, dialect, config)` | One-step: query string → WhereBuilder |
+| `ApplyFiltersToBuilder(filters, builder)` | Applies parsed filters to WhereBuilder |
+| `MapOperator(opString)` | Converts string to Operator constant |
+| `DefaultQueryFilterConfig()` | Returns default configuration |
+
+### QueryFilterConfig Options
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `AllowedFields` | `map[string]bool` | Whitelist of fields that can be filtered |
+| `FieldMappings` | `map[string]string` | Maps query param names to database columns |
+| `DefaultOperator` | `Operator` | Default operator when none specified |
+| `DateLayout` | `string` | Go time layout for parsing dates |
+| `MaxFilters` | `int` | Maximum number of filters to prevent abuse |
 
 ## Database Support
 
