@@ -46,6 +46,8 @@ go get github.com/getangry/sqld
 
 ## Quick Start
 
+### Basic Usage
+
 ```go
 package main
 
@@ -102,21 +104,98 @@ builder.IsNotNull("column")
 sql, params := builder.Build()
 ```
 
-### Enhanced Queries
+### SQLc Integration
 
-Wrap your sqlc-generated queries with enhanced capabilities:
+sqld is designed to work seamlessly with SQLc-generated code. Here's how to integrate it:
+
+#### 1. Setup with Generated SQLc Code
 
 ```go
+import (
+    "github.com/getangry/sqld"
+    "your-project/internal/db" // Your generated SQLc package
+    "github.com/jackc/pgx/v5"
+)
+
 // Your existing sqlc setup
-db := pgx.Connect(...)
-queries := db.New(db)
+conn, err := pgx.Connect(ctx, "postgres://...")
+queries := db.New(conn)
 
 // Enhance with dynamic capabilities
-enhanced := sqld.NewEnhanced(queries, db, sqld.Postgres)
+enhanced := sqld.NewEnhanced(queries, conn, sqld.Postgres)
 
-// Use dynamic queries alongside your generated ones
-enhanced.Queries() // Access original sqlc queries
+// Use original SQLc methods
+user, err := enhanced.Queries().GetUser(ctx, 1)
+users, err := enhanced.Queries().ListUsers(ctx)
+
+// Use dynamic queries for flexible filtering
+where := sqld.NewWhereBuilder(sqld.Postgres)
+where.Equal("status", "active").GreaterThan("age", 18)
+
+baseQuery := "SELECT id, name, email, age, status FROM users"
+enhanced.DynamicQuery(ctx, baseQuery, where, func(rows sqld.Rows) error {
+    for rows.Next() {
+        var user db.User // Use your generated struct
+        err := rows.Scan(&user.ID, &user.Name, &user.Email, &user.Age, &user.Status)
+        if err != nil {
+            return err
+        }
+        // Process user
+    }
+    return nil
+})
 ```
+
+#### 2. HTTP API Integration
+
+Perfect for REST APIs with dynamic filtering:
+
+```go
+func SearchUsers(w http.ResponseWriter, r *http.Request) {
+    // Configure allowed query parameters
+    config := &sqld.QueryFilterConfig{
+        AllowedFields: map[string]bool{
+            "name": true, "email": true, "status": true, "age": true,
+        },
+        FieldMappings: map[string]string{
+            "user_name": "name", // Map API field names to DB columns
+        },
+        DefaultOperator: sqld.OpEq,
+        MaxFilters: 10,
+    }
+
+    // Parse filters from URL: /users?name[contains]=john&age[gte]=18&status=active
+    where, err := sqld.BuildFromRequest(r, sqld.Postgres, config)
+    if err != nil {
+        http.Error(w, "Invalid filters", http.StatusBadRequest)
+        return
+    }
+
+    // Add business logic (always exclude deleted users)
+    where.IsNull("deleted_at")
+
+    // Execute with your generated types
+    baseQuery := "SELECT id, name, email, age, status FROM users"
+    enhanced.DynamicQuery(r.Context(), baseQuery, where, func(rows sqld.Rows) error {
+        // Scan into your generated db.User struct
+        // Return as JSON
+        return nil
+    })
+}
+```
+
+#### 3. Getting Started
+
+**Quick Integration:**
+- 📖 [Step-by-step Integration Guide](./INTEGRATION.md) - Complete tutorial for adding sqld to existing or new projects
+- 💻 [Complete Example](./example/) - Full working application with SQLc + sqld
+- 🚀 [Simple Usage](./example/simple_usage.go) - Minimal integration example
+
+**Key Benefits:**
+- Keep using your existing SQLc queries for standard operations
+- Add dynamic filtering for search/filter endpoints
+- Maintain type safety with generated structs
+- No performance overhead for static queries
 
 ## Usage Examples
 
