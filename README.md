@@ -1,4 +1,4 @@
-# sqld - Dynamic Query Builder for SQLc
+# sqld - Dynamic Query Enhancement for SQLc
 
 [![Go](https://github.com/getangry/sqld/actions/workflows/go.yml/badge.svg)](https://github.com/getangry/sqld/actions/workflows/go.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/getangry/sqld.svg)](https://pkg.go.dev/github.com/getangry/sqld)
@@ -6,49 +6,94 @@
 [![codecov](https://codecov.io/gh/getangry/sqld/branch/main/graph/badge.svg)](https://codecov.io/gh/getangry/sqld)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-sqld is a powerful, type-safe dynamic query builder designed to work seamlessly with [sqlc](https://sqlc.dev)-generated code. It maintains sqlc's SQL-first philosophy while adding the flexibility to build dynamic WHERE clauses, handle complex filtering, and create sophisticated queries at runtime.
+**sqld** enhances [SQLc](https://sqlc.dev)-generated code with dynamic query capabilities while preserving SQLc's SQL-first philosophy and compile-time safety. Add runtime filtering, sorting, pagination, and parameter parsing to your existing SQLc queries without rewrites.
+
+---
+
+## >> Quick Start
+
+Transform your static SQLc queries into dynamic powerhouses:
+
+**Before (Static SQLc):**
+```sql
+-- Only static queries
+SELECT * FROM users WHERE status = 'active' ORDER BY created_at DESC LIMIT 20;
+```
+
+**After (SQLc + sqld):**
+```sql
+-- Dynamic SQLc query with annotations
+-- name: SearchUsers :many
+SELECT * FROM users 
+WHERE status = 'active' /* sqld:where */
+ORDER BY created_at DESC /* sqld:orderby */ /* sqld:limit */;
+```
+
+```go
+// Execute with dynamic filters, sorting, and pagination
+users, err := sqld.QueryAll[db.User](
+    ctx, db, db.SearchUsers, sqld.Postgres,
+    where,   // ?name[contains]=john&age[gte]=18
+    cursor,  // Pagination cursor
+    orderBy, // ?sort=name:desc,created_at:asc
+    limit,   // Dynamic limit
+)
+```
+
+[**See full example →**](#sqlc-annotation-system)
+
+---
 
 ## Table of Contents
 
-- [Features](#features)
+### Core Features
+- [SQLc Annotation System](#sqlc-annotation-system) - Enhance SQLc queries with runtime annotations
+- [HTTP Query Parameter Parsing](#http-query-parameter-parsing) - Auto-convert URL params to SQL conditions
+- [Dynamic Filtering & WHERE Clauses](#dynamic-filtering--where-clauses) - Build complex conditions at runtime
+- [Dynamic Sorting & ORDER BY](#dynamic-sorting--order-by) - Multi-field sorting with direction control
+- [Cursor-Based Pagination](#cursor-based-pagination) - Efficient pagination for large datasets
+- [Automatic Result Scanning](#automatic-result-scanning) - Zero-code result scanning with reflection
+
+### Security & Performance
+- [Security Features](#security-features) - SQL injection prevention and field validation
+- [Type Safety](#type-safety) - Maintain compile-time safety with runtime flexibility
+- [Performance Optimizations](#performance-optimizations) - Minimal overhead with smart caching
+
+### Configuration & Integration
+- [Configuration System](#configuration-system) - Unified config for filtering, sorting, and security
+- [Database Support](#database-support) - PostgreSQL, MySQL, SQLite compatibility
+- [Error Handling](#error-handling) - Structured errors with context and wrapping
+
+### Guides & Examples
 - [Installation](#installation)
-- [Quick Start](#quick-start)
-- [Core Concepts](#core-concepts)
-- [Usage Examples](#usage-examples)
-  - [SQLc Annotation System](#sqlc-annotation-system)
-  - [Basic WHERE Conditions](#basic-where-conditions)
-  - [Complex Conditions](#complex-conditions)
-  - [Integration with SQLc](#integration-with-sqlc)
-  - [HTTP Query Parameter Filtering](#http-query-parameter-filtering)
-  - [Cursor-based Pagination](#cursor-based-pagination)
-  - [Dynamic Sorting/ORDER BY](#dynamic-sortingorder-by)
-  - [Search Filters](#search-filters)
-  - [Transaction Support](#transaction-support)
-  - [Error Handling](#error-handling)
-  - [Security Features](#security-features)
-- [API Reference](#api-reference)
-- [Database Support](#database-support)
+- [Integration with Existing SQLc Code](#integration-with-existing-sqlc-code)
 - [Best Practices](#best-practices)
-- [Contributing](#contributing)
-- [License](#license)
+- [Common Patterns](#common-patterns)
+- [API Reference](#api-reference)
 
-## Features
+---
 
-- 🔒 **Type-safe** - Maintains type safety while building dynamic queries
-- 🗄️ **Multi-database support** - Works with PostgreSQL, MySQL, and SQLite
-- 🛡️ **Advanced security** - Comprehensive SQL injection prevention with validation and sanitization
-- 🚀 **SQLc annotation system** - Enhance SQLc queries with runtime annotations (`/* sqld:where */`, `/* sqld:cursor */`, `/* sqld:orderby */`, `/* sqld:limit */`)
-- 🔧 **SQLc integration** - Seamlessly enhances existing sqlc-generated code without rewrites
-- 🌐 **HTTP query parameter parsing** - Auto-convert URL query strings to SQL conditions
-- 📄 **Cursor-based pagination** - Efficient pagination that scales to millions of records
-- 🎯 **Go best practices** - Idiomatic function names and patterns with full context.Context support
-- 📊 **Dynamic sorting** - Support for ORDER BY clauses with multiple fields and directions
-- ⚡ **High performance** - Minimal overhead, no reflection or runtime parsing
-- 🧩 **Composable** - Build complex queries by combining simple conditions
-- 🔄 **Transaction support** - Full transaction management with automatic rollback and commit
-- ❌ **Structured error handling** - Comprehensive error types with context and unwrapping support
-- 🔮 **Automatic scanning** - Zero-code result scanning with reflection and generics
-- 🧪 **Thoroughly tested** - 95+ test cases covering all functionality with benchmarks
+## Key Features Overview
+
+### Perfect SQLc Integration
+- **Zero rewrites** - Works with existing SQLc-generated code
+- **SQL-first** - Maintains SQLc's philosophy of writing real SQL
+- **Type-safe** - Preserves compile-time type safety
+- **Annotation-based** - Add `/* sqld:where */` comments to enable dynamic features
+
+### HTTP-First Design
+- **URL Query Parsing** - `?name[contains]=john&age[gte]=18&sort=name:desc`
+- **RESTful Filtering** - Standard HTTP query parameter conventions
+- **Pagination Ready** - Cursor-based pagination with `?cursor=base64token`
+- **Security Built-in** - Field whitelisting and parameter validation
+
+### Performance & Developer Experience
+- **Reflection-Based Scanning** - No manual result scanning code
+- **Automatic Type Conversion** - Smart parameter type inference
+- **Minimal Overhead** - Efficient query building and caching
+- **Rich Error Messages** - Detailed context for debugging
+
+---
 
 ## Installation
 
@@ -56,1727 +101,1479 @@ sqld is a powerful, type-safe dynamic query builder designed to work seamlessly 
 go get github.com/getangry/sqld
 ```
 
-## Quick Start
+**Requirements:**
+- Go 1.21+ (for generics)
+- [SQLc](https://sqlc.dev) for generating base queries
 
-### Basic Usage with SQLc Annotations
+---
+
+## SQLc Annotation System
+
+The heart of sqld is the annotation system that enhances your SQLc queries with dynamic capabilities.
+
+### Basic Annotations
+
+Add comments to your SQLc queries to enable dynamic features:
 
 ```sql
--- queries.sql
 -- name: SearchUsers :many
-SELECT id, name, email, age, status, role, country, verified, created_at
+SELECT id, name, email, age, status, created_at
 FROM users
 WHERE deleted_at IS NULL /* sqld:where */
 ORDER BY created_at DESC /* sqld:orderby */ /* sqld:limit */;
 ```
 
+**Available Annotations:**
+- `/* sqld:where */` - Inject dynamic WHERE conditions
+- `/* sqld:orderby */` - Inject dynamic ORDER BY clauses  
+- `/* sqld:limit */` - Inject dynamic LIMIT and OFFSET
+- `/* sqld:cursor */` - Inject cursor-based pagination conditions
+
+### Usage with sqld
+
 ```go
-package main
-
-import (
-    "context"
-    "errors"
-    "log"
-    "net/http"
-    
-    "github.com/getangry/sqld"
-    "yourproject/db" // Your sqlc-generated package
+// Build dynamic query from SQLc base query
+users, err := sqld.QueryAll[db.User](
+    ctx,
+    database,
+    db.SearchUsers,    // SQLc-generated query constant
+    sqld.Postgres,
+    whereBuilder,      // Dynamic WHERE conditions
+    cursor,            // Pagination cursor  
+    orderBy,           // Dynamic sorting
+    limit,             // Result limit
 )
-
-func SearchUsers(w http.ResponseWriter, r *http.Request) {
-    ctx := r.Context()
-    
-    // Configure allowed query parameters for filtering and sorting
-    config := sqld.DefaultConfig().
-        WithAllowedFields(map[string]bool{
-            "name": true, "email": true, "status": true, "age": true,
-        }).
-        WithMaxFilters(10).
-        WithMaxSortFields(3)
-    
-    // Parse filters from URL: /users?name[contains]=john&age[gte]=18&status=active
-    where, err := sqld.FromRequest(r, sqld.Postgres, config)
-    if err != nil {
-        http.Error(w, "Invalid filters", http.StatusBadRequest)
-        return
-    }
-    
-    // Parse sorting: /users?sort=name:desc,created_at:asc
-    // Uses same config as filtering - unified configuration!
-    orderBy, _ := sqld.ParseSortFromRequest(r, config)
-    
-    // Use SQLc query with annotations
-    finalSQL, params, err := sqld.SearchQuery(
-        db.SearchUsers,  // SQLc-generated query constant
-        sqld.Postgres,
-        where,           // Dynamic filters
-        nil,             // Cursor (for pagination)
-        orderBy,         // Dynamic sorting
-        20,              // Limit
-    )
-    if err != nil {
-        log.Printf("Failed to build query: %v", err)
-        http.Error(w, "Internal error", http.StatusInternalServerError)
-        return
-    }
-    
-    // Execute with automatic reflection-based scanning - no manual scan code needed!
-    users, err := sqld.QueryAndScanAllReflection[db.User](
-        ctx,
-        conn,
-        db.SearchUsers,  // SQLc query constant
-        sqld.Postgres,
-        where,           // Dynamic filters
-        nil,             // Cursor
-        orderBy,         // Dynamic sorting
-        20,              // Limit
-    )
-    if err != nil {
-        log.Printf("Query failed: %v", err)
-        http.Error(w, "Internal error", http.StatusInternalServerError)
-        return
-    }
-    
-    // Return as JSON
-    json.NewEncoder(w).Encode(users)
-}
 ```
 
-## Core Concepts
+### How It Works
 
-### WhereBuilder
+1. **SQLc generates** the base query constant (`db.SearchUsers`)
+2. **sqld processes** annotation comments and injects dynamic SQL
+3. **Result** is executed with full type safety maintained
 
-The `WhereBuilder` is the core component for building dynamic WHERE clauses:
+**Example transformation:**
+```sql
+-- Input SQLc query:
+SELECT * FROM users WHERE active = true /* sqld:where */ /* sqld:orderby */ /* sqld:limit */
+
+-- Runtime result with dynamic conditions:
+SELECT * FROM users WHERE active = true AND name ILIKE $1 AND age >= $2 ORDER BY name DESC, created_at ASC LIMIT $3 OFFSET $4
+```
+
+[**Learn more about SQLc integration →**](#integration-with-existing-sqlc-code)
+
+---
+
+## HTTP Query Parameter Parsing
+
+sqld automatically converts HTTP query parameters into SQL conditions using intuitive syntax.
+
+### Basic Filtering Syntax
+
+```http
+GET /users?name=john&status=active&age=25
+```
 
 ```go
-// Create a builder for your database dialect
-builder := sqld.NewWhereBuilder(sqld.Postgres) // or sqld.MySQL, sqld.SQLite
+// Parse HTTP request into SQL conditions
+config := sqld.DefaultConfig().WithAllowedFields(map[string]bool{
+    "name": true, "status": true, "age": true,
+})
 
-// Add conditions
-builder.Equal("column", value)
-builder.NotEqual("column", value)
-builder.GreaterThan("column", value)
-builder.LessThan("column", value)
-builder.Like("column", pattern)
-builder.ILike("column", pattern) // Case-insensitive LIKE
-builder.In("column", []interface{}{val1, val2})
-builder.Between("column", start, end)
-builder.IsNull("column")
-builder.IsNotNull("column")
+where, err := sqld.FromRequest(request, sqld.Postgres, config)
+// Generates: WHERE name = $1 AND status = $2 AND age = $3
+```
 
-// Build the final SQL
-sql, params := builder.Build()
+### Advanced Operator Syntax
+
+sqld supports rich query operators using bracket notation:
+
+```http
+# Text operations
+GET /users?name[contains]=john          # name ILIKE '%john%'
+GET /users?email[startsWith]=admin      # email ILIKE 'admin%'
+GET /users?name[endsWith]=.com          # name ILIKE '%.com'
+
+# Numeric comparisons  
+GET /users?age[gte]=18                  # age >= 18
+GET /users?age[lt]=65                   # age < 65
+GET /users?created_at[after]=2024-01-01 # created_at > '2024-01-01'
+
+# Array operations
+GET /users?status[in]=active,verified   # status IN ('active', 'verified')
+GET /users?role[notIn]=banned,deleted   # role NOT IN ('banned', 'deleted')
+
+# Null checks
+GET /users?last_login[isNull]=true      # last_login IS NULL
+GET /users?profile[isNotNull]=true      # profile IS NOT NULL
+
+# Range operations
+GET /users?age[between]=18,65           # age BETWEEN 18 AND 65
+```
+
+### Alternative Syntax Support
+
+sqld supports multiple syntax styles for flexibility:
+
+```http
+# Bracket notation (recommended)
+GET /users?name[contains]=john&age[gte]=18
+
+# Underscore notation  
+GET /users?name_contains=john&age_gte=18
+
+# Mixed usage
+GET /users?name[contains]=john&age_gte=18&status=active
+```
+
+### Field Mapping and Validation
+
+```go
+config := sqld.DefaultConfig().
+    WithAllowedFields(map[string]bool{
+        "name": true, "email": true, "age": true,
+    }).
+    WithFieldMappings(map[string]string{
+        "user_name": "name",        // ?user_name=john → name = 'john'
+        "signup_date": "created_at", // ?signup_date[after]=2024-01-01
+    }).
+    WithMaxFilters(10)              // Prevent abuse
+
+where, err := sqld.FromRequest(request, sqld.Postgres, config)
+```
+
+**Security Features:**
+- **Field Whitelisting** - Only allowed fields can be filtered
+- **Parameter Limits** - Prevent DoS attacks with too many filters
+- **SQL Injection Prevention** - All values are properly parameterized
+- **Type Validation** - Automatic type checking and conversion
+
+[**See complete operator reference →**](#filtering-operators-reference)
+
+---
+
+## Dynamic Filtering & WHERE Clauses
+
+Build complex WHERE conditions programmatically with type safety and security.
+
+### WhereBuilder API
+
+```go
+// Create a WHERE builder for your database dialect
+where := sqld.NewWhereBuilder(sqld.Postgres)
+
+// Basic conditions
+where.Equal("status", "active")
+where.GreaterThan("age", 18)
+where.Like("name", "john%")
+where.In("role", []string{"admin", "manager"})
+
+// Complex conditions with AND/OR logic
+where.Group(func(w *sqld.WhereBuilder) {
+    w.Equal("department", "engineering")
+    w.Or()
+    w.Equal("department", "product")
+})
+
+// Generate SQL
+sql, params := where.Build()
+// Result: WHERE status = $1 AND age > $2 AND name LIKE $3 AND role IN ($4, $5) AND (department = $6 OR department = $7)
+```
+
+### Supported Conditions
+
+| Method | SQL Output | Use Case |
+|--------|------------|----------|
+| `Equal(field, value)` | `field = $1` | Exact matches |
+| `NotEqual(field, value)` | `field != $1` | Exclusions |
+| `GreaterThan(field, value)` | `field > $1` | Numeric/date ranges |
+| `LessThan(field, value)` | `field < $1` | Numeric/date ranges |
+| `Like(field, pattern)` | `field LIKE $1` | Pattern matching |
+| `ILike(field, pattern)` | `field ILIKE $1` | Case-insensitive patterns |
+| `In(field, values)` | `field IN ($1, $2, ...)` | Multiple value matching |
+| `Between(field, min, max)` | `field BETWEEN $1 AND $2` | Range queries |
+| `IsNull(field)` | `field IS NULL` | Null checks |
+| `IsNotNull(field)` | `field IS NOT NULL` | Non-null checks |
+
+### Combining with SQLc
+
+```go
+// Your SQLc query
+// -- name: GetUsers :many
+// SELECT * FROM users WHERE active = true /* sqld:where */
+
+// Build dynamic conditions
+where := sqld.NewWhereBuilder(sqld.Postgres)
+where.Equal("department", "engineering")
+where.GreaterThan("age", 25)
+
+// Execute with SQLc integration
+users, err := sqld.QueryAll[db.User](
+    ctx, database, db.GetUsers, sqld.Postgres,
+    where, nil, nil, 0,
+)
+```
+
+### Advanced Grouping and Logic
+
+```go
+where := sqld.NewWhereBuilder(sqld.Postgres)
+
+// Complex condition: (status = 'active' AND role IN ('admin', 'manager')) OR (status = 'pending' AND age >= 21)
+where.Group(func(w *sqld.WhereBuilder) {
+    w.Equal("status", "active")
+    w.In("role", []string{"admin", "manager"})
+}).Or().Group(func(w *sqld.WhereBuilder) {
+    w.Equal("status", "pending")
+    w.GreaterThanOrEqual("age", 21)
+})
+```
+
+[**Learn more about complex conditions →**](#advanced-where-building)
+
+---
+
+## Dynamic Sorting & ORDER BY
+
+Add flexible sorting capabilities to your SQLc queries with multiple syntax options.
+
+### Basic Sorting from HTTP
+
+```http
+# Single field sorting
+GET /users?sort=name:desc                    # ORDER BY name DESC
+
+# Multiple field sorting  
+GET /users?sort=name:asc,created_at:desc     # ORDER BY name ASC, created_at DESC
+
+# Prefix notation
+GET /users?sort=-name,+created_at            # ORDER BY name DESC, created_at ASC
+
+# Individual parameters
+GET /users?sort_name=desc&sort_age=asc       # ORDER BY name DESC, age ASC
+```
+
+### Programmatic Sorting
+
+```go
+// Build ORDER BY clauses
+orderBy := sqld.NewOrderByBuilder()
+orderBy.Desc("created_at")
+orderBy.Asc("name") 
+orderBy.Add("priority", sqld.SortDesc)
+
+sql := orderBy.Build()
+// Result: "created_at DESC, name ASC, priority DESC"
+```
+
+### Integration with HTTP Parsing
+
+```go
+config := sqld.DefaultConfig().
+    WithAllowedFields(map[string]bool{
+        "name": true, "created_at": true, "age": true,
+    }).
+    WithMaxSortFields(3).                    // Security: limit sort complexity
+    WithDefaultSort([]sqld.SortField{        // Fallback when no sort specified
+        {Field: "created_at", Direction: sqld.SortDesc},
+    }).
+    WithFieldMappings(map[string]string{     // URL param → DB column mapping
+        "signup_date": "created_at",
+        "user_name": "name",
+    })
+
+// Parse sorting from HTTP request
+orderBy, err := sqld.ParseSortFromRequest(request, config)
+
+// Use with SQLc
+users, err := sqld.QueryAll[db.User](
+    ctx, database, db.SearchUsers, sqld.Postgres,
+    nil, nil, orderBy, 20,
+)
+```
+
+### Supported Sort Syntaxes
+
+| HTTP Parameter | Parsed Result | Description |
+|----------------|---------------|-------------|
+| `?sort=name:desc` | `name DESC` | Colon notation |
+| `?sort=-name` | `name DESC` | Prefix notation (- = desc) |
+| `?sort=+name` | `name ASC` | Prefix notation (+ = asc) |
+| `?sort_name=desc` | `name DESC` | Individual parameters |
+| `?sort=name:desc,age:asc` | `name DESC, age ASC` | Multiple fields |
+
+### Field Mapping Example
+
+```go
+// Configure field mappings for user-friendly URLs
+config := sqld.DefaultConfig().
+    WithFieldMappings(map[string]string{
+        "signup": "created_at",      // ?sort=signup:desc → ORDER BY created_at DESC  
+        "username": "name",          // ?sort=username:asc → ORDER BY name ASC
+        "last_seen": "last_login",   // ?sort=last_seen:desc → ORDER BY last_login DESC
+    })
+
+// URL: /users?sort=signup:desc,username:asc
+// SQL: ORDER BY created_at DESC, name ASC
+```
+
+[**See complete sorting guide →**](#advanced-sorting-patterns)
+
+---
+
+## Cursor-Based Pagination
+
+Efficient pagination that scales to millions of records without OFFSET performance penalties.
+
+### How Cursor Pagination Works
+
+Instead of `OFFSET/LIMIT`, cursor pagination uses the last seen record as a reference point:
+
+```sql
+-- Traditional OFFSET (slow on large datasets)
+SELECT * FROM users ORDER BY created_at DESC LIMIT 20 OFFSET 10000;
+
+-- Cursor-based (fast regardless of dataset size)  
+SELECT * FROM users 
+WHERE created_at < $1 OR (created_at = $1 AND id < $2)
+ORDER BY created_at DESC, id DESC 
+LIMIT 20;
 ```
 
 ### SQLc Integration
 
-sqld is designed to work seamlessly with SQLc-generated code. Here's how to integrate it:
+```sql
+-- name: SearchUsers :many
+-- Add cursor injection point
+SELECT id, name, email, created_at
+FROM users  
+WHERE deleted_at IS NULL /* sqld:cursor */ /* sqld:where */
+ORDER BY created_at DESC, id DESC /* sqld:limit */;
+```
 
-#### 1. Setup with Generated SQLc Code
+### HTTP API Usage
 
+```http
+# First page - no cursor
+GET /users?limit=20
+
+# Response includes next_cursor for subsequent pages
+{
+  "users": [...],
+  "has_more": true,
+  "next_cursor": "eyJjcmVhdGVkX2F0IjoiMjAyNC0wMS0xNSIsImlkIjoxMjN9"
+}
+
+# Next page - use cursor from previous response
+GET /users?limit=20&cursor=eyJjcmVhdGVkX2F0IjoiMjAyNC0wMS0xNSIsImlkIjoxMjN9
+```
+
+### Implementation Example
+
+```go
+func PaginateUsers(w http.ResponseWriter, r *http.Request) {
+    // Parse pagination parameters
+    limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+    if limit == 0 || limit > 100 { limit = 20 }
+    
+    // Parse cursor
+    cursorStr := r.URL.Query().Get("cursor")
+    cursor, err := sqld.DecodeCursor(cursorStr)
+    if err != nil {
+        http.Error(w, "Invalid cursor", http.StatusBadRequest)
+        return
+    }
+    
+    // Execute paginated query
+    users, err := sqld.QueryAll[db.User](
+        ctx, database, db.SearchUsers, sqld.Postgres,
+        nil,      // No additional filters
+        cursor,   // Pagination cursor
+        nil,      // Default sorting
+        limit+1,  // +1 to check for more results
+    )
+    if err != nil {
+        http.Error(w, "Query failed", http.StatusInternalServerError)
+        return
+    }
+    
+    // Build response with pagination metadata
+    result := PaginatedResponse{
+        Users:   users[:min(len(users), limit)],
+        HasMore: len(users) > limit,
+        Limit:   limit,
+    }
+    
+    // Generate next cursor if there are more results
+    if result.HasMore {
+        lastUser := users[limit-1]
+        result.NextCursor = sqld.EncodeCursor(lastUser.CreatedAt, lastUser.ID)
+    }
+    
+    json.NewEncoder(w).Encode(result)
+}
+```
+
+### Cursor Structure
+
+```go
+type Cursor struct {
+    CreatedAt interface{} `json:"created_at"`  // Timestamp for ordering
+    ID        int32       `json:"id"`          // Unique ID for tie-breaking
+}
+
+// Cursors are base64-encoded JSON for URL safety
+cursor := sqld.EncodeCursor(user.CreatedAt, user.ID)
+// Result: "eyJjcmVhdGVkX2F0IjoiMjAyNC0wMS0xNSIsImlkIjoxMjN9"
+```
+
+**Benefits of Cursor Pagination:**
+- [+] **Consistent Performance** - O(log n) regardless of page number
+- [+] **Real-time Safe** - New records don't affect pagination
+- [+] **Scalable** - Works with millions of records
+- [+] **Deterministic** - Same results when data changes
+
+[**Learn more about pagination strategies →**](#pagination-best-practices)
+
+---
+
+## Automatic Result Scanning
+
+Eliminate boilerplate scanning code with reflection-based automatic result binding.
+
+### Traditional SQLc Approach
+
+```go
+// Traditional SQLc requires manual scanning
+rows, err := db.Query(ctx, query, params...)
+if err != nil { return nil, err }
+defer rows.Close()
+
+var users []User
+for rows.Next() {
+    var user User
+    err := rows.Scan(
+        &user.ID, &user.Name, &user.Email, 
+        &user.Age, &user.Status, &user.CreatedAt,
+    )
+    if err != nil { return nil, err }
+    users = append(users, user)
+}
+return users, rows.Err()
+```
+
+### sqld Automatic Scanning
+
+```go
+// sqld handles all scanning automatically
+users, err := sqld.QueryAll[db.User](
+    ctx, database, db.SearchUsers, sqld.Postgres,
+    where, cursor, orderBy, limit,
+)
+// Done! Results are fully scanned into []db.User
+```
+
+### How It Works
+
+sqld uses Go generics and reflection to automatically:
+
+1. **Analyze the target struct** (`db.User`) at runtime
+2. **Create scan destinations** for each struct field  
+3. **Execute the query** with proper parameter binding
+4. **Scan results** directly into typed structs
+5. **Handle errors** with detailed context
+
+### Supported Functions
+
+| Function | Purpose | Returns |
+|----------|---------|---------|
+| `QueryAll[T]()` | Execute query, scan all results | `[]T, error` |
+| `QueryOne[T]()` | Execute query, scan single result | `T, error` |
+| `QueryPaginated[T]()` | Execute with pagination metadata | `*PaginatedResult[T], error` |
+
+### Type Safety Maintained
+
+```go
+// Compile-time type safety with runtime flexibility
+users, err := sqld.QueryAll[db.User](...)        // Returns []db.User
+orders, err := sqld.QueryAll[db.Order](...)      // Returns []db.Order  
+products, err := sqld.QueryAll[db.Product](...)  // Returns []db.Product
+
+// Compiler catches type mismatches
+var wrongType []string = users  // ❌ Compile error
+```
+
+### Error Context and Debugging
+
+sqld provides detailed error information for debugging:
+
+```go
+users, err := sqld.QueryAll[db.User](ctx, db, query, ...)
+if err != nil {
+    var queryErr *sqld.QueryError
+    if errors.As(err, &queryErr) {
+        log.Printf("Query failed: %s", queryErr.Query)
+        log.Printf("Parameters: %+v", queryErr.Parameters) 
+        log.Printf("Context: %s", queryErr.Context)
+        log.Printf("Original error: %v", queryErr.Unwrap())
+    }
+}
+```
+
+### Compatibility with SQLc Types
+
+sqld works seamlessly with all SQLc-generated types including:
+
+- [+] **Basic types** - `string`, `int32`, `bool`, etc.
+- [+] **Nullable types** - `pgtype.Text`, `pgtype.Int4`, etc.
+- [+] **JSON types** - `pgtype.JSONB`, custom JSON structs
+- [+] **Time types** - `time.Time`, `pgtype.Timestamptz`
+- [+] **Array types** - `pgtype.TextArray`, etc.
+- [+] **Custom types** - Enums, custom SQLc types
+
+[**Learn more about type handling →**](#type-conversion-guide)
+
+---
+
+## Security Features
+
+sqld provides comprehensive protection against common web application vulnerabilities.
+
+### SQL Injection Prevention
+
+**Built-in Protection:**
+- [+] **Parameterized queries** - All user input is properly escaped
+- [+] **Query validation** - Syntax checking before execution
+- [+] **No string concatenation** - Parameters are bound safely
+- [+] **Comment sanitization** - Removes dangerous SQL comments
+
+```go
+// Safe - parameters are properly bound
+where := sqld.NewWhereBuilder(sqld.Postgres)
+where.Equal("name", userInput)  // Becomes: name = $1 with parameter binding
+
+// sqld prevents dangerous patterns
+where.Raw("name = " + userInput)  // ❌ Detected and rejected
+```
+
+### Field Whitelisting
+
+Prevent unauthorized data access by controlling which database fields can be filtered or sorted:
+
+```go
+config := sqld.DefaultConfig().
+    WithAllowedFields(map[string]bool{
+        "name":       true,   // ✅ Allowed
+        "email":      true,   // ✅ Allowed  
+        "created_at": true,   // ✅ Allowed
+        // "password" not listed = ❌ Blocked
+        // "internal_notes" not listed = ❌ Blocked
+    })
+
+// Only allowed fields can be used in queries
+where, err := sqld.FromRequest(request, sqld.Postgres, config)
+// URL: ?name=john&password=hack → Only name filter applied, password ignored
+```
+
+### Rate Limiting and Abuse Prevention
+
+```go
+config := sqld.DefaultConfig().
+    WithMaxFilters(10).      // Prevent too many WHERE conditions
+    WithMaxSortFields(3).    // Limit ORDER BY complexity
+    WithDefaultOperator(sqld.OpEq)  // Safe default for unspecified operators
+
+// Requests exceeding limits are rejected with clear error messages
+```
+
+### Input Validation and Sanitization
+
+```go
+// Automatic type validation
+config := sqld.DefaultConfig().
+    WithDateLayout("2006-01-02").  // Strict date format validation
+    WithFieldMappings(map[string]string{
+        "user_id": "id",  // Control exposed vs internal field names
+    })
+
+// Invalid inputs are rejected before reaching the database
+// ?age=not_a_number → Error: "invalid value for field age"
+// ?date=invalid → Error: "invalid date format"
+```
+
+### Structured Error Handling
+
+sqld provides detailed, safe error messages that help developers debug without exposing sensitive information:
+
+```go
+type QueryError struct {
+    Query      string        // SQL query (sanitized)
+    Parameters []interface{} // Parameters (values hidden in production)
+    Context    string        // Operation context
+    Dialect    Dialect       // Database dialect
+    err        error         // Original error (wrapped)
+}
+
+// Safe error exposure
+if err != nil {
+    // Detailed logging for developers
+    log.Printf("Query error: %+v", err)
+    
+    // Safe message for users
+    http.Error(w, "Invalid query parameters", http.StatusBadRequest)
+}
+```
+
+### Production Security Checklist
+
+- [+] **Always use field whitelisting** with `WithAllowedFields()`
+- [+] **Set parameter limits** with `WithMaxFilters()` and `WithMaxSortFields()`
+- [+] **Validate date formats** with `WithDateLayout()`
+- [+] **Use field mappings** to hide internal column names
+- [+] **Log errors securely** - full details in logs, safe messages to users
+- [+] **Test with malicious input** - SQL injection, oversized requests, etc.
+
+[**Complete security guide →**](#production-security-guide)
+
+---
+
+## Configuration System
+
+sqld uses a unified configuration system that controls filtering, sorting, field mapping, and security settings.
+
+### DefaultConfig()
+
+Start with sensible defaults and customize as needed:
+
+```go
+config := sqld.DefaultConfig()
+// Default settings:
+// - Empty AllowedFields (allows all fields - not recommended for production)
+// - Empty FieldMappings
+// - DefaultOperator: OpEq (=)
+// - DateLayout: "2006-01-02"
+// - MaxFilters: 50
+// - MaxSortFields: 5
+// - DefaultSort: empty (no default sorting)
+```
+
+### Fluent Configuration API
+
+Chain configuration methods for readable setup:
+
+```go
+config := sqld.DefaultConfig().
+    WithAllowedFields(map[string]bool{
+        "id": true, "name": true, "email": true, "status": true,
+    }).
+    WithFieldMappings(map[string]string{
+        "user_name": "name",
+        "signup_date": "created_at",
+    }).
+    WithDefaultOperator(sqld.OpEq).
+    WithDateLayout("2006-01-02T15:04:05Z07:00").
+    WithMaxFilters(20).
+    WithMaxSortFields(3).
+    WithDefaultSort([]sqld.SortField{
+        {Field: "created_at", Direction: sqld.SortDesc},
+        {Field: "id", Direction: sqld.SortAsc},
+    })
+```
+
+### Configuration Options Reference
+
+| Method | Purpose | Example | Security Impact |
+|--------|---------|---------|-----------------|
+| `WithAllowedFields()` | Whitelist filterable/sortable fields | `{"name": true, "email": true}` | 🔒 **Critical** - Prevents unauthorized field access |
+| `WithFieldMappings()` | Map URL params to DB columns | `{"user_name": "name"}` | 🔒 **High** - Hides internal schema |
+| `WithMaxFilters()` | Limit number of WHERE conditions | `20` | 🛡️ **Medium** - Prevents DoS attacks |
+| `WithMaxSortFields()` | Limit ORDER BY complexity | `3` | 🛡️ **Medium** - Prevents performance abuse |
+| `WithDefaultOperator()` | Default comparison operator | `sqld.OpEq` | 🔒 **Low** - Controls unspecified comparisons |
+| `WithDateLayout()` | Date parsing format | `"2006-01-02"` | ✅ **Low** - Input validation |
+| `WithDefaultSort()` | Fallback sorting | `[{Field: "id", Direction: SortAsc}]` | ✅ **Info** - UX improvement |
+
+### Environment-Specific Configurations
+
+```go
+// Development - permissive for debugging
+func DevConfig() *sqld.Config {
+    return sqld.DefaultConfig().
+        WithMaxFilters(100).           // High limits for testing
+        WithMaxSortFields(10).
+        WithAllowedFields(map[string]bool{
+            // Allow more fields for development
+        })
+}
+
+// Production - strict security
+func ProdConfig() *sqld.Config {
+    return sqld.DefaultConfig().
+        WithAllowedFields(map[string]bool{
+            // Explicitly whitelist only necessary fields
+            "name": true, "status": true, "created_at": true,
+        }).
+        WithMaxFilters(10).            // Conservative limits
+        WithMaxSortFields(2).
+        WithFieldMappings(map[string]string{
+            // Hide internal column names
+            "signup": "created_at",
+        })
+}
+```
+
+### Reusing Configurations
+
+```go
+// Create base configuration
+baseConfig := sqld.DefaultConfig().
+    WithMaxFilters(20).
+    WithMaxSortFields(3)
+
+// Extend for specific endpoints
+userConfig := baseConfig.
+    WithAllowedFields(map[string]bool{
+        "name": true, "email": true, "created_at": true,
+    })
+
+orderConfig := baseConfig.
+    WithAllowedFields(map[string]bool{
+        "total": true, "status": true, "created_at": true,
+    })
+```
+
+[**Advanced configuration patterns →**](#configuration-best-practices)
+
+---
+
+## Database Support
+
+sqld supports multiple database systems with dialect-specific optimizations.
+
+### Supported Databases
+
+| Database | Status | Dialect Constant | Notes |
+|----------|--------|------------------|-------|
+| **PostgreSQL** | ✅ Full Support | `sqld.Postgres` | Recommended, most features |
+| **MySQL** | ✅ Full Support | `sqld.MySQL` | Complete compatibility |
+| **SQLite** | ✅ Full Support | `sqld.SQLite` | Great for testing/development |
+
+### Dialect-Specific Features
+
+```go
+// PostgreSQL - supports advanced features
+where := sqld.NewWhereBuilder(sqld.Postgres)
+where.ILike("name", "john%")           // Case-insensitive LIKE
+where.Raw("data->>'key' = ?", "value") // JSON operations
+
+// MySQL - standard SQL features
+where := sqld.NewWhereBuilder(sqld.MySQL)  
+where.Like("name", "john%")            // Standard LIKE
+
+// SQLite - lightweight, perfect for testing
+where := sqld.NewWhereBuilder(sqld.SQLite)
+where.Equal("name", "john")            // Basic operations
+```
+
+### Connection Examples
+
+**PostgreSQL with pgx:**
 ```go
 import (
-    "github.com/getangry/sqld"
-    "your-project/internal/db" // Your generated SQLc package
     "github.com/jackc/pgx/v5"
+    "github.com/getangry/sqld/adapters/pgx"
 )
 
-// Your existing sqlc setup
-conn, err := pgx.Connect(ctx, "postgres://...")
-queries := db.New(conn)
+conn, err := pgx.Connect(ctx, databaseURL)
+adapter := pgxadapter.NewPgxAdapter(conn)
 
-// Use original SQLc methods for simple queries
-user, err := queries.GetUser(ctx, 1)
-users, err := queries.ListUsers(ctx)
+users, err := sqld.QueryAll[db.User](
+    ctx, adapter, db.SearchUsers, sqld.Postgres,
+    where, cursor, orderBy, limit,
+)
+```
 
-// For dynamic filtering, use SQLc queries with annotations
-// In your queries.sql:
-// -- name: SearchUsers :many
-// SELECT * FROM users 
-// WHERE deleted_at IS NULL /* sqld:where */
-// ORDER BY created_at DESC /* sqld:orderby */ /* sqld:limit */;
-
-// At runtime, enhance the query with filters
-where := sqld.NewWhereBuilder(sqld.Postgres)
-where.Equal("status", "active").GreaterThan("age", 18)
-
-finalSQL, params, err := sqld.SearchQuery(
-    db.SearchUsers,  // SQLc-generated query constant
-    sqld.Postgres,
-    where,           // Dynamic filters
-    nil,             // Cursor
-    nil,             // OrderBy
-    20,              // Limit
+**MySQL with database/sql:**
+```go
+import (
+    "database/sql"
+    _ "github.com/go-sql-driver/mysql"
 )
 
-// Execute with automatic reflection-based scanning
-users, err := sqld.QueryAndScanAllReflection[db.User](ctx, conn, db.SearchUsers, 
-    sqld.Postgres, where, nil, nil, 20)
+db, err := sql.Open("mysql", connectionString)
+
+users, err := sqld.QueryAll[db.User](
+    ctx, db, db.SearchUsers, sqld.MySQL,
+    where, cursor, orderBy, limit,
+)
 ```
 
-#### 2. HTTP API Integration
+**SQLite for testing:**
+```go
+import (
+    "database/sql"
+    _ "github.com/mattn/go-sqlite3"
+)
 
-Perfect for REST APIs with dynamic filtering:
+db, err := sql.Open("sqlite3", ":memory:")
+
+users, err := sqld.QueryAll[db.User](
+    ctx, db, db.SearchUsers, sqld.SQLite,
+    where, cursor, orderBy, limit,
+)
+```
+
+### Parameter Binding by Dialect
+
+sqld automatically handles parameter placeholder differences:
 
 ```go
-func SearchUsers(w http.ResponseWriter, r *http.Request) {
-    // Unified configuration for filtering and sorting
-    config := sqld.DefaultConfig().
-        WithAllowedFields(map[string]bool{
-            "name": true, "email": true, "status": true, "age": true,
-        }).
-        WithFieldMappings(map[string]string{
-            "user_name": "name", // Map API field names to DB columns
-        }).
-        WithDefaultOperator(sqld.OpEq).
-        WithMaxFilters(10).
-        WithMaxSortFields(3)
-
-    // Parse filters from URL: /users?name[contains]=john&age[gte]=18&status=active
-    where, err := sqld.FromRequest(r, sqld.Postgres, config)
-    if err != nil {
-        http.Error(w, "Invalid filters", http.StatusBadRequest)
-        return
-    }
-
-    // Parse filters and sorting together - same config!
-    where, orderBy, err := sqld.FromRequestWithSort(r, sqld.Postgres, config)
-    if err != nil {
-        http.Error(w, "Invalid parameters", http.StatusBadRequest)
-        return
-    }
-
-    // Use your SQLc query with annotations
-    finalSQL, params, err := sqld.SearchQuery(
-        db.SearchUsers,  // SQLc query: SELECT * FROM users WHERE deleted_at IS NULL /* sqld:where */ ORDER BY created_at DESC /* sqld:orderby */ /* sqld:limit */
-        sqld.Postgres,
-        where,           // Dynamic filters from query params
-        nil,             // Cursor for pagination
-        orderBy,         // Dynamic sorting
-        20,              // Limit
-    )
-    
-    // Execute and scan into SQLc-generated types
-    rows, err := conn.Query(r.Context(), finalSQL, params...)
-    // ... scan into []db.User and return as JSON
-}
-```
-
-#### 3. Getting Started
-
-**Quick Integration:**
-- 📖 [Step-by-step Integration Guide](./INTEGRATION.md) - Complete tutorial for adding sqld to existing or new projects
-- 💻 [Complete Example](./example/) - Full working application with SQLc + sqld
-- 🚀 [Simple Usage](./example/simple_usage.go) - Minimal integration example
-
-**Key Benefits:**
-- Keep using your existing SQLc queries for standard operations
-- Add dynamic filtering for search/filter endpoints
-- Maintain type safety with generated structs
-- No performance overhead for static queries
-
-## Usage Examples
-
-### SQLc Annotation System
-
-sqld provides a powerful annotation system that enhances SQLc queries with dynamic capabilities at runtime without requiring rewrites. Simply add special comments to your SQLc queries and sqld will process them dynamically.
-
-#### Four Core Annotations
-
-- `/* sqld:where */` - Injects dynamic WHERE conditions
-- `/* sqld:cursor */` - Enables cursor-based pagination
-- `/* sqld:orderby */` - Adds dynamic ORDER BY clauses
-- `/* sqld:limit */` - Adds LIMIT clause
-
-#### Basic SQLc Query Enhancement
-
-```sql
--- name: SearchUsers :many
-SELECT id, name, email, age, status, role, country, verified, created_at, updated_at, deleted_at
-FROM users
-WHERE deleted_at IS NULL /* sqld:where */
-ORDER BY created_at DESC, id DESC /* sqld:cursor */ /* sqld:orderby */ /* sqld:limit */;
-```
-
-```go
-// Use SQLc-generated types and methods
-queries := db.New(conn)
-originalSQL := db.SearchUsers // SQLc-generated constant
-
-// Create dynamic conditions
-where := sqld.NewWhereBuilder(sqld.Postgres)
-where.Equal("status", "active")
+// Same Go code works across all databases
+where := sqld.NewWhereBuilder(dialect)  // dialect determines placeholder style
+where.Equal("name", "john")
 where.GreaterThan("age", 18)
 
-// Create cursor for pagination
-cursor := &sqld.Cursor{
-    CreatedAt: "2024-01-15T10:30:00Z",
-    ID:        12,
-}
-
-// Create dynamic sorting
-orderBy := sqld.NewOrderByBuilder()
-orderBy.Desc("updated_at").Asc("name")
-
-// Process the annotated query
-finalSQL, params, err := sqld.SearchQuery(
-    originalSQL,
-    sqld.Postgres,
-    where,
-    cursor,
-    orderBy, // Dynamic sorting
-    10,      // limit
-)
-// Result: Enhanced SQL with dynamic WHERE, cursor pagination, and LIMIT
-
-// Execute with your database driver
-rows, err := conn.Query(ctx, finalSQL, params...)
-```
-
-#### Complete REST API Example
-
-```go
-func (h *Handler) SearchUsers(w http.ResponseWriter, r *http.Request) {
-    // Parse query parameters
-    config := &sqld.QueryFilterConfig{
-        AllowedFields: map[string]bool{
-            "name": true, "status": true, "country": true,
-        },
-        MaxFilters: 10,
-    }
-    
-    where, err := sqld.FromRequest(r, sqld.Postgres, config)
-    if err != nil {
-        http.Error(w, "Invalid filters", http.StatusBadRequest)
-        return
-    }
-    
-    // Parse cursor and limit from query params
-    var cursor *sqld.Cursor
-    if cursorStr := r.URL.Query().Get("cursor"); cursorStr != "" {
-        cursor, _ = sqld.DecodeCursor(cursorStr)
-    }
-    
-    limit := 20
-    if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
-        if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
-            limit = l
-        }
-    }
-    
-    // Use SQLc annotation system
-    finalSQL, params, err := sqld.SearchQuery(
-        db.SearchUsers,
-        sqld.Postgres,
-        where,
-        cursor,
-        limit,
-    )
-    if err != nil {
-        http.Error(w, err.Error(), http.StatusInternalServerError)
-        return
-    }
-    
-    // Execute query
-    rows, err := h.db.Query(ctx, finalSQL, params...)
-    if err != nil {
-        http.Error(w, err.Error(), http.StatusInternalServerError)
-        return
-    }
-    defer rows.Close()
-    
-    var users []User
-    var nextCursor string
-    
-    for rows.Next() {
-        var u User
-        err := rows.Scan(&u.ID, &u.Name, &u.Email, &u.Age, &u.Status, 
-                        &u.Role, &u.Country, &u.Verified, &u.CreatedAt, 
-                        &u.UpdatedAt, &u.DeletedAt)
-        if err != nil {
-            http.Error(w, err.Error(), http.StatusInternalServerError)
-            return
-        }
-        users = append(users, u)
-        
-        // Generate next cursor from last record
-        if len(users) == limit {
-            nextCursor = sqld.EncodeCursor(u.CreatedAt, u.ID)
-        }
-    }
-    
-    response := struct {
-        Users      []User `json:"users"`
-        NextCursor string `json:"next_cursor,omitempty"`
-    }{
-        Users:      users,
-        NextCursor: nextCursor,
-    }
-    
-    json.NewEncoder(w).Encode(response)
-}
-```
-
-#### Annotation Processing
-
-The annotation processor intelligently combines all conditions:
-
-1. **Base WHERE clause**: Your existing SQLc query conditions
-2. **Dynamic filters**: Conditions from HTTP query parameters
-3. **Cursor conditions**: For pagination
-4. **LIMIT clause**: For result size control
-
-```sql
--- Original SQLc query:
-WHERE deleted_at IS NULL /* sqld:where */
-ORDER BY created_at DESC, id DESC /* sqld:cursor */ /* sqld:limit */
-
--- After processing becomes:
-WHERE deleted_at IS NULL 
-  AND status = $1 
-  AND age > $2 
-  AND (created_at < $3 OR (created_at = $3 AND id < $4))
-ORDER BY created_at DESC, id DESC 
-LIMIT $5
-```
-
-### Basic WHERE Conditions
-
-```go
-func GetActiveUsers(minAge int) (string, []interface{}) {
-    where := sqld.NewWhereBuilder(sqld.Postgres)
-    
-    where.Equal("status", "active")
-    where.GreaterThan("age", minAge)
-    where.IsNotNull("email_verified_at")
-    
-    return where.Build()
-}
-```
-
-### Complex Conditions
-
-#### OR Conditions
-
-```go
-where := sqld.NewWhereBuilder(sqld.Postgres)
-
-// Users from specific departments
-where.Or(func(or sqld.ConditionBuilder) {
-    or.Equal("department", "engineering")
-    or.Equal("department", "product")
-    or.Equal("department", "design")
-})
-
-// AND active status
-where.Equal("status", "active")
-
 sql, params := where.Build()
-// SQL: (department = $1 OR department = $2 OR department = $3) AND status = $4
+
+// PostgreSQL: WHERE name = $1 AND age > $2
+// MySQL/SQLite: WHERE name = ? AND age > ?
 ```
 
-#### Nested Conditions
+### Performance Considerations
 
-```go
-where := sqld.NewWhereBuilder(sqld.Postgres)
+| Database | Best For | Performance Notes |
+|----------|----------|-------------------|
+| **PostgreSQL** | Production apps, complex queries | Excellent JSONB support, advanced indexing |
+| **MySQL** | Web applications, read-heavy workloads | Great replication, mature ecosystem |
+| **SQLite** | Development, testing, embedded apps | No network overhead, simple deployment |
 
-// Complex permission check
-where.Or(func(or sqld.ConditionBuilder) {
-    // Admin users
-    or.Equal("role", "admin")
-    
-    // Or owners of the resource
-    or.Raw("user_id = resource.owner_id")
-    
-    // Or users with explicit permission
-    or.Raw("EXISTS (SELECT 1 FROM permissions WHERE permissions.user_id = users.id AND permissions.resource_id = ?)", resourceID)
-})
-```
+[**Database-specific optimization guide →**](#database-optimization-guide)
 
-### Integration with SQLc
+---
 
-#### Writing SQLc Queries with Annotations
+## Integration with Existing SQLc Code
 
+sqld is designed to enhance existing SQLc projects without requiring rewrites.
+
+### Step 1: Add Annotations to SQLc Queries
+
+Update your existing `.sql` files to include sqld annotations:
+
+**Before:**
 ```sql
--- queries.sql
+-- name: GetUsers :many
+SELECT id, name, email, status, created_at
+FROM users  
+WHERE deleted_at IS NULL
+ORDER BY created_at DESC
+LIMIT 20;
+```
 
--- name: SearchUsers :many
--- Basic search with all annotations
-SELECT id, name, email, status, created_at 
+**After:**
+```sql
+-- name: GetUsers :many  
+SELECT id, name, email, status, created_at
 FROM users
 WHERE deleted_at IS NULL /* sqld:where */
 ORDER BY created_at DESC /* sqld:orderby */ /* sqld:limit */;
-
--- name: SearchUsersByStatus :many
--- Search with a required parameter
-SELECT id, name, email, status, created_at
-FROM users  
-WHERE status = $1 AND deleted_at IS NULL /* sqld:where */
-ORDER BY created_at DESC /* sqld:orderby */ /* sqld:limit */;
-
--- name: SearchPosts :many
--- Complex query with joins
-SELECT p.id, p.title, p.content, u.name as author_name
-FROM posts p
-JOIN users u ON p.user_id = u.id
-WHERE p.published = true /* sqld:where */
-ORDER BY p.created_at DESC /* sqld:cursor */ /* sqld:orderby */ /* sqld:limit */;
 ```
 
-#### Using Annotated Queries in Go
+### Step 2: Generate SQLc Code
 
+Run your existing SQLc generation:
+
+```bash
+sqlc generate
+```
+
+SQLc ignores the `/* sqld:* */` comments, so your generated code remains unchanged.
+
+### Step 3: Replace Manual Queries with sqld
+
+**Before (manual query building):**
 ```go
-type UserService struct {
-    queries *db.Queries  // SQLc-generated queries
-    conn    *pgx.Conn    // Database connection
-}
-
-func (s *UserService) SearchUsers(ctx context.Context, filters UserFilters) ([]db.User, error) {
-    // Build dynamic filters
-    where := sqld.NewWhereBuilder(sqld.Postgres)
+func GetUsers(ctx context.Context, db *sql.DB, filters UserFilters) ([]User, error) {
+    query := "SELECT id, name, email FROM users WHERE deleted_at IS NULL"
+    args := []interface{}{}
     
     if filters.Name != "" {
-        where.ILike("name", sqld.SearchPattern(filters.Name, "contains"))
+        query += " AND name ILIKE ?"
+        args = append(args, "%"+filters.Name+"%")
     }
     
     if filters.Status != "" {
-        where.Equal("status", filters.Status)
+        query += " AND status = ?"
+        args = append(args, filters.Status)
     }
     
-    if len(filters.Tags) > 0 {
-        tagInterfaces := make([]interface{}, len(filters.Tags))
-        for i, tag := range filters.Tags {
-            tagInterfaces[i] = tag
-        }
-        where.In("tag", tagInterfaces)
-    }
+    query += " ORDER BY created_at DESC LIMIT ?"
+    args = append(args, filters.Limit)
     
-    // Process SQLc query with annotations
-    finalSQL, params, err := sqld.SearchQuery(
-        db.SearchUsers,  // SQLc-generated query constant
-        sqld.Postgres,
-        where,           // Dynamic filters
-        nil,             // Cursor
-        nil,             // OrderBy  
-        20,              // Limit
-    )
-    if err != nil {
-        return nil, err
-    }
-    
-    // Execute with automatic reflection-based scanning
-    return sqld.QueryAndScanAllReflection[db.User](
-        ctx,
-        s.conn,
-        db.SearchUsers,  // SQLc query constant
-        sqld.Postgres,
-        where,           // Dynamic filters
-        nil,             // Cursor
-        nil,             // OrderBy
-        20,              // Limit
-    )
-}
-```
-
-### HTTP Query Parameter Filtering
-
-sqld includes a powerful queryfilter package that automatically converts HTTP query parameters into SQL WHERE conditions. This is perfect for building REST APIs with dynamic filtering.
-
-#### Basic Query Parameter Parsing
-
-```go
-// Handle: GET /users?name=john&age[gt]=18&status[in]=active,verified
-func GetUsers(w http.ResponseWriter, r *http.Request) {
-    // Configure allowed filters
-    config := &sqld.QueryFilterConfig{
-        AllowedFields: map[string]bool{
-            "name":   true,
-            "age":    true, 
-            "status": true,
-            "email":  true,
-        },
-        MaxFilters: 10,
-    }
-
-    // Parse query parameters into WHERE conditions
-    where, err := sqld.FromRequest(r, sqld.Postgres, config)
-    if err != nil {
-        http.Error(w, "Invalid filters", http.StatusBadRequest)
-        return
-    }
-
-    // Generate SQL
-    baseQuery := "SELECT * FROM users"
-    finalQuery, params := sqld.InjectWhereCondition(baseQuery, where, sqld.Postgres)
-    // Result: SELECT * FROM users WHERE name = $1 AND age > $2 AND status IN ($3, $4)
-    
-    // Execute query with your database
-    rows, err := db.Query(ctx, finalQuery, params...)
-}
-```
-
-#### Supported Query Syntax
-
-sqld supports multiple syntax styles for maximum flexibility:
-
-**Bracket Syntax:**
-```
-GET /users?name[eq]=john&age[gt]=18&email[contains]=example.com
-```
-
-**Underscore Syntax:**
-```
-GET /users?name_eq=john&age_gt=18&email_contains=example.com
-```
-
-**Mixed Syntax:**
-```
-GET /users?name=john&age[gt]=18&email_contains=example.com
-```
-
-#### Available Operators
-
-| Operator | Description | Example |
-|----------|-------------|---------|
-| `eq` or `=` | Equality | `name=john` |
-| `ne` or `!=` | Not equal | `status[ne]=deleted` |
-| `gt` | Greater than | `age[gt]=18` |
-| `gte` | Greater than or equal | `age[gte]=21` |
-| `lt` | Less than | `price[lt]=100` |
-| `lte` | Less than or equal | `price[lte]=50` |
-| `like` | SQL LIKE | `name[like]=%john%` |
-| `ilike` | Case-insensitive LIKE | `email[ilike]=%@GMAIL.COM` |
-| `contains` | Text contains | `description[contains]=urgent` |
-| `startswith` | Text starts with | `name[startswith]=admin` |
-| `endswith` | Text ends with | `email[endswith]=.com` |
-| `between` | Between two values | `age[between]=18,65` |
-| `in` | In array | `role[in]=admin,user,manager` |
-| `notin` | Not in array | `status[notin]=deleted,banned` |
-| `isnull` | Is NULL | `deleted_at[isnull]=true` |
-| `isnotnull` | Is not NULL | `verified_at[isnotnull]=true` |
-
-#### Field Mapping and Security
-
-```go
-config := &sqld.QueryFilterConfig{
-    // Security: Only allow filtering on these fields
-    AllowedFields: map[string]bool{
-        "name":     true,
-        "age":      true,
-        "status":   true,
-        "country":  true,
-    },
-    
-    // Map query param names to database columns
-    FieldMappings: map[string]string{
-        "user_name":    "name",           // ?user_name=john -> WHERE name = $1
-        "user_age":     "age",            // ?user_age=25 -> WHERE age = $1
-        "signup_date":  "created_at",     // ?signup_date=2024-01-01 -> WHERE created_at = $1
-    },
-    
-    // Prevent abuse
-    MaxFilters: 20,
-    DefaultOperator: sqld.OpEq,
-    DateLayout: "2006-01-02",
-}
-```
-
-#### Complete REST API Example
-
-```go
-type UserAPI struct {
-    enhanced *sqld.EnhancedQueries[*db.Queries]
-}
-
-func (api *UserAPI) SearchUsers(w http.ResponseWriter, r *http.Request) {
-    // Configure filtering
-    config := &sqld.QueryFilterConfig{
-        AllowedFields: map[string]bool{
-            "name": true, "email": true, "status": true, 
-            "country": true, "age": true, "created_at": true,
-        },
-        FieldMappings: map[string]string{
-            "signup": "created_at",
-            "active": "status",
-        },
-        MaxFilters: 15,
-    }
-
-    // Parse filters from query parameters
-    where, err := sqld.FromRequest(r, sqld.Postgres, config)
-    if err != nil {
-        http.Error(w, fmt.Sprintf("Invalid filters: %v", err), http.StatusBadRequest)
-        return
-    }
-
-    // Build query
-    baseQuery := `
-        SELECT id, name, email, status, country, age, created_at 
-        FROM users`
+    rows, err := db.QueryContext(ctx, query, args...)
+    if err != nil { return nil, err }
+    defer rows.Close()
     
     var users []User
-    err = api.enhanced.DynamicQuery(ctx, baseQuery, where, func(rows sqld.Rows) error {
-        result, err := sqld.ScanToSlice(rows, func(rows sqld.Rows) (User, error) {
-            var u User
-            err := rows.Scan(&u.ID, &u.Name, &u.Email, &u.Status, &u.Country, &u.Age, &u.CreatedAt)
-            return u, err
-        })
-        users = result
-        return err
-    })
+    for rows.Next() {
+        var user User
+        err := rows.Scan(&user.ID, &user.Name, &user.Email)
+        if err != nil { return nil, err }
+        users = append(users, user)
+    }
+    
+    return users, rows.Err()
+}
+```
 
+**After (with sqld):**
+```go
+func GetUsers(ctx context.Context, db DBTX, r *http.Request) ([]User, error) {
+    config := sqld.DefaultConfig().
+        WithAllowedFields(map[string]bool{
+            "name": true, "status": true, "created_at": true,
+        })
+    
+    where, err := sqld.FromRequest(r, sqld.Postgres, config) 
+    if err != nil { return nil, err }
+    
+    return sqld.QueryAll[User](
+        ctx, db, db.GetUsers, sqld.Postgres,
+        where, nil, nil, 20,
+    )
+}
+```
+
+### Step 4: Gradual Migration Strategy
+
+You can migrate endpoints gradually without breaking existing functionality:
+
+**1. Start with read-only endpoints**
+```go
+// Migrate search/list endpoints first
+func SearchUsers(w http.ResponseWriter, r *http.Request) {
+    // Use sqld for flexible filtering
+    users, err := getUsersWithSqld(ctx, db, r)
+    // ... handle response
+}
+
+func GetUserByID(w http.ResponseWriter, r *http.Request) {
+    // Keep existing SQLc code for simple cases  
+    user, err := queries.GetUser(ctx, userID)
+    // ... handle response
+}
+```
+
+**2. Add new features with sqld**
+```go
+// New endpoints get sqld from the start
+func SearchUsersWithPagination(w http.ResponseWriter, r *http.Request) {
+    // Built with sqld pagination, filtering, sorting
+}
+```
+
+**3. Migrate complex queries last**
+```go
+// Complex joins and aggregations
+// Migrate once you're comfortable with sqld patterns
+```
+
+### Maintaining SQLc Benefits
+
+sqld preserves SQLc's key advantages:
+
+- [+] **SQL-first approach** - Write real SQL, not ORM abstractions
+- [+] **Compile-time safety** - Type checking for your queries
+- [+] **Performance** - No reflection in query generation (only in result scanning)
+- [+] **Tooling support** - IDE completion, query analysis tools
+
+### Example: Complete Migration
+
+**Original SQLc handler:**
+```go
+func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request) {
+    users, err := h.queries.ListUsers(r.Context())
     if err != nil {
-        http.Error(w, err.Error(), http.StatusInternalServerError)
+        http.Error(w, "Database error", 500)
         return
     }
-
     json.NewEncoder(w).Encode(users)
 }
 ```
 
-#### Query Examples
+**Enhanced with sqld:**
+```go
+func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request) {
+    config := h.getUsersConfig()  // Reusable configuration
+    
+    where, orderBy, err := sqld.FromRequestWithSort(r, sqld.Postgres, config)
+    if err != nil {
+        http.Error(w, "Invalid query parameters", 400)
+        return  
+    }
+    
+    users, err := sqld.QueryAll[db.User](
+        r.Context(), h.db, db.ListUsers, sqld.Postgres,
+        where, nil, orderBy, 50,
+    )
+    if err != nil {
+        log.Printf("Query failed: %v", err)
+        http.Error(w, "Database error", 500)
+        return
+    }
+    
+    json.NewEncoder(w).Encode(users)
+}
+```
 
-**Simple Filtering:**
-```
-GET /users?name=john&status=active
-→ WHERE name = $1 AND status = $2
-```
+Now your endpoint supports:
+- `GET /users` - List all users
+- `GET /users?name[contains]=john` - Filter by name
+- `GET /users?status=active&sort=name:asc` - Filter and sort
+- `GET /users?age[gte]=18&department[in]=eng,product` - Complex filtering
 
-**Complex Filtering:**
-```
-GET /users?age[between]=18,65&country[in]=US,CA,UK&email[contains]=@company.com&created_at[after]=2024-01-01
-→ WHERE age BETWEEN $1 AND $2 AND country IN ($3, $4, $5) AND email ILIKE $6 AND created_at > $7
-```
+[**Complete migration guide →**](#migration-step-by-step)
 
-**Text Search:**
-```
-GET /users?name[contains]=john&email[endswith]=.com&status[ne]=deleted
-→ WHERE name ILIKE $1 AND email ILIKE $2 AND status != $3
-```
+---
 
-#### Integration with Existing Queries
+## API Reference
 
-You can also enhance existing sqlc queries:
+### Core Query Functions
 
 ```go
-// Your existing sqlc query
-query := "SELECT * FROM users WHERE role = $1"
+// Execute query with automatic scanning - returns all results
+func QueryAll[T any](
+    ctx context.Context,
+    db DBTX,
+    sqlcQuery string,        // SQLc-generated query constant
+    dialect Dialect,         // sqld.Postgres, sqld.MySQL, sqld.SQLite
+    where *WhereBuilder,     // Dynamic WHERE conditions (optional)
+    cursor *Cursor,          // Pagination cursor (optional)  
+    orderBy *OrderByBuilder, // Dynamic ORDER BY (optional)
+    limit int,               // Result limit (0 = no limit)
+    originalParams ...interface{}, // Original SQLc parameters
+) ([]T, error)
 
-// Add dynamic filters from request
-where, _ := sqld.FromRequest(r, sqld.Postgres, config)
-enhancedQuery, params := sqld.InjectWhereCondition(query, where, sqld.Postgres)
+// Execute query with automatic scanning - returns single result
+func QueryOne[T any](
+    ctx context.Context,
+    db DBTX,
+    sqlcQuery string,
+    dialect Dialect,
+    where *WhereBuilder,
+    originalParams ...interface{},
+) (T, error)
 
-// Combine parameters
-allParams := append([]interface{}{"admin"}, params...)
-// Result: SELECT * FROM users WHERE role = $1 AND name = $2 AND age > $3
+// Execute query with pagination metadata
+func QueryPaginated[T any](
+    ctx context.Context,
+    db DBTX, 
+    sqlcQuery string,
+    dialect Dialect,
+    where *WhereBuilder,
+    cursor *Cursor,
+    orderBy *OrderByBuilder,
+    limit int,
+    getCursorFields func(T) (interface{}, interface{}),
+    originalParams ...interface{},
+) (*PaginatedResult[T], error)
 ```
 
-### Cursor-based Pagination
-
-sqld uses cursor-based pagination for efficient pagination that scales to millions of records, avoiding the performance issues of OFFSET-based pagination.
-
-#### Basic Cursor Pagination
+### Configuration API
 
 ```go
-// Create cursor from last record
+// Create default configuration
+func DefaultConfig() *Config
+
+// Configuration methods (chainable)
+func (c *Config) WithAllowedFields(fields map[string]bool) *Config
+func (c *Config) WithFieldMappings(mappings map[string]string) *Config  
+func (c *Config) WithDefaultOperator(op Operator) *Config
+func (c *Config) WithDateLayout(layout string) *Config
+func (c *Config) WithMaxFilters(max int) *Config
+func (c *Config) WithMaxSortFields(max int) *Config
+func (c *Config) WithDefaultSort(sort []SortField) *Config
+
+// Configuration helper methods
+func (c *Config) IsFieldAllowed(field string) bool
+func (c *Config) MapField(field string) string
+func (c *Config) ValidateAndBuild(fields []SortField) (*OrderByBuilder, error)
+```
+
+### WhereBuilder API
+
+```go
+// Create WHERE builder
+func NewWhereBuilder(dialect Dialect) *WhereBuilder
+
+// Basic conditions
+func (w *WhereBuilder) Equal(field string, value interface{}) *WhereBuilder
+func (w *WhereBuilder) NotEqual(field string, value interface{}) *WhereBuilder
+func (w *WhereBuilder) GreaterThan(field string, value interface{}) *WhereBuilder
+func (w *WhereBuilder) LessThan(field string, value interface{}) *WhereBuilder
+func (w *WhereBuilder) Like(field, pattern string) *WhereBuilder
+func (w *WhereBuilder) ILike(field, pattern string) *WhereBuilder
+func (w *WhereBuilder) In(field string, values []interface{}) *WhereBuilder
+func (w *WhereBuilder) Between(field string, min, max interface{}) *WhereBuilder
+func (w *WhereBuilder) IsNull(field string) *WhereBuilder
+func (w *WhereBuilder) IsNotNull(field string) *WhereBuilder
+
+// Logical operators
+func (w *WhereBuilder) And() *WhereBuilder
+func (w *WhereBuilder) Or() *WhereBuilder  
+func (w *WhereBuilder) Group(fn func(*WhereBuilder)) *WhereBuilder
+
+// Raw SQL (use carefully)
+func (w *WhereBuilder) Raw(condition string, params ...interface{}) *WhereBuilder
+
+// Output
+func (w *WhereBuilder) Build() (string, []interface{})
+func (w *WhereBuilder) HasConditions() bool
+```
+
+### OrderByBuilder API
+
+```go
+// Create ORDER BY builder
+func NewOrderByBuilder() *OrderByBuilder
+
+// Add sorting fields
+func (o *OrderByBuilder) Add(field string, direction SortDirection) *OrderByBuilder
+func (o *OrderByBuilder) Asc(field string) *OrderByBuilder
+func (o *OrderByBuilder) Desc(field string) *OrderByBuilder
+
+// Output
+func (o *OrderByBuilder) Build() string
+func (o *OrderByBuilder) BuildWithPrefix() string
+func (o *OrderByBuilder) HasFields() bool
+func (o *OrderByBuilder) GetFields() []SortField
+```
+
+### HTTP Parsing Functions
+
+```go
+// Parse filters from HTTP request
+func FromRequest(r *http.Request, dialect Dialect, config *Config) (*WhereBuilder, error)
+
+// Parse filters from query string
+func FromQueryString(queryString string, dialect Dialect, config *Config) (*WhereBuilder, error)
+
+// Parse sorting from HTTP request  
+func ParseSortFromRequest(r *http.Request, config *Config) (*OrderByBuilder, error)
+
+// Parse both filters and sorting
+func FromRequestWithSort(r *http.Request, dialect Dialect, config *Config) (*WhereBuilder, *OrderByBuilder, error)
+```
+
+### Types and Constants
+
+```go
+// Database dialects
+const (
+    Postgres Dialect = "postgres"
+    MySQL    Dialect = "mysql" 
+    SQLite   Dialect = "sqlite"
+)
+
+// Filter operators
+const (
+    OpEq       Operator = "="
+    OpNe       Operator = "!="
+    OpGt       Operator = ">"
+    OpGte      Operator = ">="
+    OpLt       Operator = "<"
+    OpLte      Operator = "<="
+    OpLike     Operator = "LIKE"
+    OpILike    Operator = "ILIKE"
+    OpContains Operator = "contains"
+    OpIn       Operator = "in"
+    OpNotIn    Operator = "notIn"
+    OpBetween  Operator = "between"
+    OpIsNull   Operator = "isNull"
+    // ... see complete list in source
+)
+
+// Sort directions
+const (
+    SortAsc  SortDirection = "ASC"
+    SortDesc SortDirection = "DESC"
+)
+
+// Core types
+type Config struct { /* configuration fields */ }
+type WhereBuilder struct { /* internal fields */ }  
+type OrderByBuilder struct { /* internal fields */ }
 type Cursor struct {
     CreatedAt interface{} `json:"created_at"`
     ID        int32       `json:"id"`
 }
-
-cursor := &sqld.Cursor{
-    CreatedAt: "2024-01-15T10:30:00Z",
-    ID:        12,
-}
-
-// Use with SQLc annotation
-finalSQL, params, err := sqld.SearchQuery(
-    db.SearchUsers,
-    sqld.Postgres,
-    where,
-    cursor,
-    20, // limit
-)
-```
-
-#### REST API Implementation
-
-```go
-func PaginatedUsers(w http.ResponseWriter, r *http.Request) {
-    // Parse cursor from query parameter
-    var cursor *sqld.Cursor
-    if cursorStr := r.URL.Query().Get("cursor"); cursorStr != "" {
-        cursor, _ = sqld.DecodeCursor(cursorStr)
-    }
-    
-    // Parse limit
-    limit := 20
-    if l, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && l > 0 {
-        limit = l
-    }
-    
-    // Execute query with cursor
-    where := sqld.NewWhereBuilder(sqld.Postgres)
-    where.IsNull("deleted_at")
-    
-    finalSQL, params, err := sqld.SearchQuery(
-        db.SearchUsers,
-        sqld.Postgres, 
-        where,
-        cursor,
-        limit,
-    )
-    
-    rows, err := db.Query(ctx, finalSQL, params...)
-    // ... scan results
-    
-    // Generate next cursor from last record
-    var nextCursor string
-    if len(users) == limit {
-        lastUser := users[len(users)-1]
-        nextCursor = sqld.EncodeCursor(lastUser.CreatedAt, lastUser.ID)
-    }
-    
-    response := PaginatedResponse{
-        Users:      users,
-        NextCursor: nextCursor,
-        HasMore:    len(users) == limit,
-    }
-    
-    json.NewEncoder(w).Encode(response)
+type PaginatedResult[T any] struct {
+    Items      []T     `json:"items"`
+    NextCursor *string `json:"next_cursor,omitempty"`
+    HasMore    bool    `json:"has_more"`
+    Limit      int     `json:"limit"`
 }
 ```
 
-#### Cursor Encoding/Decoding
-
-```go
-// Encode cursor for API response
-cursorStr := sqld.EncodeCursor(record.CreatedAt, record.ID)
-// Returns: base64-encoded JSON like "eyJjcmVhdGVkX2F0IjoiMjAyNC0wMS0xNVQxMDozMDowMFoiLCJpZCI6MTJ9"
-
-// Decode cursor from request
-cursor, err := sqld.DecodeCursor(cursorStr)
-if err != nil {
-    // Invalid cursor
-}
-```
-
-#### Why Cursor-based Pagination?
-
-- **Consistent results**: No duplicate or missing records when data changes
-- **Performance**: No OFFSET scanning, direct index usage
-- **Scalability**: Works efficiently with millions of records
-- **Real-time friendly**: Handles concurrent insertions/deletions gracefully
-
-### Dynamic Sorting/ORDER BY
-
-sqld provides comprehensive support for dynamic ORDER BY clauses, allowing you to build flexible sorting logic that integrates seamlessly with SQLc queries.
-
-#### Basic OrderByBuilder Usage
-
-```go
-// Create an OrderByBuilder
-orderBy := sqld.NewOrderByBuilder()
-
-// Add sort fields with different directions
-orderBy.Desc("created_at")
-orderBy.Asc("name")
-orderBy.Desc("priority")
-
-// Generate ORDER BY clause
-fmt.Println(orderBy.BuildWithPrefix())
-// Output: ORDER BY created_at DESC, name ASC, priority DESC
-
-// Check if any fields are defined
-if orderBy.HasFields() {
-    sql := orderBy.Build() // Without "ORDER BY" prefix
-}
-```
-
-#### Supported Sort Formats
-
-sqld supports multiple syntax formats for specifying sort fields:
-
-```go
-// 1. Colon syntax: "field:direction"
-fields1 := sqld.ParseSortFields("name:desc,email:asc,created_at:desc")
-
-// 2. Prefix syntax: "-field" (desc), "+field" (asc)
-fields2 := sqld.ParseSortFields("-name,+email,-created_at")
-
-// 3. Mixed syntax
-fields3 := sqld.ParseSortFields("name:desc,+email,-created_at")
-
-// 4. Array format
-fields4 := sqld.ParseSortFields([]string{"name:desc", "email:asc"})
-
-// All produce the same result:
-// [{Field:name Direction:DESC} {Field:email Direction:ASC} {Field:created_at Direction:DESC}]
-```
-
-#### HTTP Query Parameter Integration
-
-Parse sorting from HTTP requests with multiple parameter formats:
-
-```go
-// 1. Standard sort parameter: ?sort=name:desc,email:asc
-req, _ := http.NewRequest("GET", "/users?sort=name:desc,email:asc", nil)
-
-config := &sqld.QueryFilterConfig{
-    OrderByConfig: &sqld.OrderByConfig{
-        AllowedFields: map[string]bool{
-            "name": true, "email": true, "created_at": true,
-        },
-        MaxSortFields: 3,
-    },
-}
-
-orderBy, err := sqld.ParseSortFromRequest(req, config)
-if err != nil {
-    // Handle error
-}
-
-// 2. Individual field parameters: ?sort_name=desc&sort_email=asc
-values := url.Values{
-    "sort_name":  []string{"desc"},
-    "sort_email": []string{"asc"},
-}
-orderBy2, _ := sqld.ParseSortFromValues(values, config)
-
-// 3. Alternative parameter names: sort_by, order_by, orderby, order
-// All of these work: ?sort_by=name:desc, ?order_by=name:desc, etc.
-```
-
-#### Security and Validation
-
-Control which fields can be sorted and how:
-
-```go
-config := &sqld.OrderByConfig{
-    // Whitelist allowed fields (security)
-    AllowedFields: map[string]bool{
-        "name":       true,
-        "email":      true,
-        "created_at": true,
-        "updated_at": true,
-    },
-    
-    // Map API field names to database columns
-    FieldMappings: map[string]string{
-        "signup": "created_at",    // ?sort=signup:desc -> ORDER BY created_at DESC
-        "user":   "name",          // ?sort=user:asc -> ORDER BY name ASC
-    },
-    
-    // Limit number of sort fields (prevent abuse)
-    MaxSortFields: 5,
-    
-    // Default sort when no fields specified
-    DefaultSort: []sqld.SortField{
-        {"created_at", sqld.SortDesc},
-        {"id", sqld.SortAsc},
-    },
-}
-
-// Validate and build
-fields := []sqld.SortField{
-    {"user", sqld.SortAsc},     // Will be mapped to "name"
-    {"signup", sqld.SortDesc},  // Will be mapped to "created_at"
-}
-
-orderBy, err := config.ValidateAndBuild(fields)
-if err != nil {
-    // Handle validation error (forbidden field, too many fields, etc.)
-}
-
-result := orderBy.Build()
-// Result: "name ASC, created_at DESC"
-```
-
-#### SQLc Annotation Integration
-
-Use the `/* sqld:orderby */` annotation to add dynamic sorting to SQLc queries:
-
-```sql
--- name: SearchUsers :many
-SELECT id, name, email, status, created_at
-FROM users
-WHERE deleted_at IS NULL /* sqld:where */
-ORDER BY created_at DESC /* sqld:orderby */ /* sqld:limit */;
-```
-
-```go
-// Your existing SQLc query with dynamic sorting
-where := sqld.NewWhereBuilder(sqld.Postgres)
-where.Equal("status", "active")
-
-// Parse sorting from HTTP request
-orderBy, _ := sqld.ParseSortFromRequest(req, config)
-
-// Use SQLc annotation system
-finalSQL, params, err := sqld.SearchQuery(
-    db.SearchUsers,  // SQLc-generated query
-    sqld.Postgres,
-    where,           // Dynamic filters
-    cursor,          // Pagination cursor
-    orderBy,         // Dynamic sorting
-    20,              // Limit
-)
-
-// The annotation processor will:
-// 1. Keep the base ORDER BY: "created_at DESC"
-// 2. Add dynamic sorting: ", name ASC, email DESC"
-// Result: "ORDER BY created_at DESC, name ASC, email DESC"
-```
-
-#### Combined Filtering and Sorting
-
-Parse both filters and sorting from a single HTTP request:
-
-```go
-// Handle: GET /users?status=active&age[gte]=18&sort=name:desc,email:asc
-func SearchUsers(w http.ResponseWriter, r *http.Request) {
-    config := &sqld.QueryFilterConfig{
-        AllowedFields: map[string]bool{
-            "status": true, "age": true,  // For filtering
-        },
-        DefaultOperator: sqld.OpEq,
-        OrderByConfig: &sqld.OrderByConfig{
-            AllowedFields: map[string]bool{
-                "name": true, "email": true, "created_at": true, // For sorting
-            },
-            MaxSortFields: 3,
-        },
-    }
-    
-    // Parse both filters and sorting in one call
-    where, orderBy, err := sqld.FromRequestWithSort(r, sqld.Postgres, config)
-    if err != nil {
-        http.Error(w, "Invalid parameters", http.StatusBadRequest)
-        return
-    }
-    
-    // Use with SQLc annotations
-    finalSQL, params, err := sqld.SearchQuery(
-        db.SearchUsers,
-        sqld.Postgres,
-        where,
-        nil,     // No cursor
-        orderBy, // Dynamic sorting
-        50,      // Limit
-    )
-    
-    // Execute query...
-}
-```
-
-#### Best Practices for Sorting
-
-1. **Always whitelist allowed fields** to prevent SQL injection
-2. **Set reasonable limits** on the number of sort fields
-3. **Provide sensible defaults** for when no sort is specified
-4. **Use field mappings** to decouple API field names from database columns
-5. **Consider database indexes** for frequently sorted columns
-
-### Search Filters
-
-```go
-// Conditional filtering - only add conditions if values are provided
-func UserFilter(filter UserSearchRequest) *sqld.WhereBuilder {
-    where := sqld.NewWhereBuilder(sqld.Postgres)
-    
-    // ConditionalWhere only adds the condition if the value is not empty/nil
-    sqld.ConditionalWhere(where, "name", filter.Name)
-    sqld.ConditionalWhere(where, "email", filter.Email)
-    sqld.ConditionalWhere(where, "country", filter.Country)
-    
-    // Date range filtering
-    if filter.StartDate != nil && filter.EndDate != nil {
-        where.Between("created_at", filter.StartDate, filter.EndDate)
-    } else if filter.StartDate != nil {
-        where.GreaterThan("created_at", filter.StartDate)
-    } else if filter.EndDate != nil {
-        where.LessThan("created_at", filter.EndDate)
-    }
-    
-    // Status filtering with inclusions
-    if len(filter.IncludeStatuses) > 0 {
-        statusValues := make([]interface{}, len(filter.IncludeStatuses))
-        for i, v := range filter.IncludeStatuses {
-            statusValues[i] = v
-        }
-        where.In("status", statusValues)
-    }
-    
-    // Exclude certain statuses
-    for _, status := range filter.ExcludeStatuses {
-        where.NotEqual("status", status)
-    }
-    
-    // Full-text search across multiple columns
-    if filter.SearchText != "" {
-        searchPattern := sqld.SearchPattern(strings.TrimSpace(filter.SearchText), "contains")
-        where.Or(func(or sqld.ConditionBuilder) {
-            or.ILike("name", searchPattern)
-            or.ILike("email", searchPattern) 
-            or.ILike("bio", searchPattern)
-        })
-    }
-    
-    return where
-}
-```
-
-### Search Patterns
-
-```go
-// Helper for building LIKE patterns
-searchTerm := "john"
-
-contains := sqld.SearchPattern(searchTerm, "contains")  // %john%
-prefix := sqld.SearchPattern(searchTerm, "prefix")      // john%
-suffix := sqld.SearchPattern(searchTerm, "suffix")      // %john
-exact := sqld.SearchPattern(searchTerm, "exact")        // john
-
-where := sqld.NewWhereBuilder(sqld.Postgres)
-where.ILike("name", contains)  // Case-insensitive search
-```
-
-### Raw SQL
-
-```go
-where := sqld.NewWhereBuilder(sqld.Postgres)
-
-// Add raw SQL when needed
-where.Raw("DATE_TRUNC('day', created_at) = ?", "2024-01-01")
-where.Raw("age BETWEEN ? AND ?", 18, 65)
-where.Raw("EXISTS (SELECT 1 FROM orders WHERE orders.user_id = users.id)")
-
-// Mix with regular conditions
-where.Equal("status", "active")
-```
-
-### Combining Multiple Builders
-
-```go
-// Combine conditions from different sources
-userFilter := sqld.NewWhereBuilder(sqld.Postgres)
-userFilter.Equal("user_type", "customer")
-
-orderFilter := sqld.NewWhereBuilder(sqld.Postgres)
-orderFilter.GreaterThan("total_amount", 100)
-
-dateFilter := sqld.NewWhereBuilder(sqld.Postgres)
-dateFilter.Between("created_at", startDate, endDate)
-
-// Combine all conditions
-combined := sqld.CombineConditions(sqld.Postgres, userFilter, orderFilter, dateFilter)
-sql, params := combined.Build()
-```
-
-## Transaction Support
-
-sqld provides comprehensive transaction support with automatic rollback, proper error handling, and seamless integration with sqlc-generated code.
-
-### Basic Transaction Usage
-
-```go
-import (
-    "context"
-    "database/sql"
-    "github.com/getangry/sqld"
-)
-
-// Create a transaction-enabled database wrapper
-db, err := sql.Open("postgres", connectionString)
-if err != nil {
-    return err
-}
-
-stdDB := sqld.NewStandardDB(db, sqld.Postgres)
-queries := db.New(db)
-
-// Create transactional queries wrapper
-txQueries := sqld.NewTransactionalQueries(queries, stdDB, sqld.Postgres, stdDB)
-
-// Execute operations within a transaction
-ctx := context.Background()
-err = txQueries.WithTx(ctx, nil, func(ctx context.Context, queries *sqld.EnhancedQueries[*db.Queries]) error {
-    // All operations here are within the transaction
-    
-    // Use enhanced dynamic queries
-    where := sqld.NewWhereBuilder(sqld.Postgres)
-    where.Equal("status", "pending")
-    
-    baseQuery := "UPDATE orders SET status = 'processing'"
-    err := queries.DynamicQuery(ctx, baseQuery, where, func(rows sqld.Rows) error {
-        // Process results
-        return nil
-    })
-    if err != nil {
-        return err // Automatic rollback
-    }
-    
-    // Use original sqlc methods
-    user, err := queries.Queries().CreateUser(ctx, db.CreateUserParams{
-        Name:  "John Doe",
-        Email: "john@example.com",
-    })
-    if err != nil {
-        return err // Automatic rollback
-    }
-    
-    // Transaction commits automatically if no error is returned
-    return nil
-})
-
-if err != nil {
-    // Transaction was rolled back
-    log.Printf("Transaction failed: %v", err)
-}
-```
-
-### Advanced Transaction Options
-
-```go
-// Configure transaction isolation level and read-only mode
-opts := &sqld.TxOptions{
-    IsolationLevel: sql.LevelReadCommitted,
-    ReadOnly:       false,
-}
-
-err = txQueries.WithTx(ctx, opts, func(ctx context.Context, queries *sqld.EnhancedQueries[*db.Queries]) error {
-    // Transaction operations with specific settings
-    return nil
-})
-```
-
-## Error Handling
-
-sqld provides structured error handling with context information and proper error wrapping that integrates with Go's standard error handling patterns.
-
-### Error Types
-
-```go
-import (
-    "errors"
-    "github.com/getangry/sqld"
-)
-
-// Query execution error with context
-var qErr *sqld.QueryError
-if errors.As(err, &qErr) {
-    fmt.Printf("Query failed in %s: %v\n", qErr.Context, qErr.Unwrap())
-    fmt.Printf("SQL: %s\n", qErr.Query)
-    fmt.Printf("Params: %v\n", qErr.Params)
-}
-
-// Validation error for invalid input
-var vErr *sqld.ValidationError
-if errors.As(err, &vErr) {
-    fmt.Printf("Validation failed for field %s: %s\n", vErr.Field, vErr.Message)
-    if vErr.Value != nil {
-        fmt.Printf("Invalid value: %v\n", vErr.Value)
-    }
-}
-
-// Transaction error
-var tErr *sqld.TransactionError
-if errors.As(err, &tErr) {
-    fmt.Printf("Transaction %s failed: %v\n", tErr.Operation, tErr.Unwrap())
-}
-
-// Check for specific error constants
-if errors.Is(err, sqld.ErrNoRows) {
-    fmt.Println("No rows returned")
-} else if errors.Is(err, sqld.ErrSQLInjection) {
-    fmt.Println("Potential SQL injection detected")
-}
-```
-
-## Security Features
-
-sqld implements multiple layers of security to prevent SQL injection and validate input at various stages.
-
-### Automatic Query Validation
-
-```go
-// All queries are automatically validated
-where := sqld.NewWhereBuilder(sqld.Postgres)
-where.Equal("name", "John")  // Column name is validated
-where.Raw("user_id = ?", 123) // Raw SQL is checked for injection patterns
-
-// Enhanced queries include validation
-err := enhanced.DynamicQuery(ctx, baseQuery, where, scanFn)
-// Returns ValidationError if security issues are detected
-```
-
-### Input Sanitization
-
-```go
-// Sanitize identifiers for safe use in SQL
-safeColumn := sqld.SanitizeIdentifier("user-input", sqld.Postgres)
-// Result: "user_input" (removes dangerous characters and quotes properly)
-
-// Validate ORDER BY clauses
-err := sqld.ValidateOrderBy("name ASC, created_at DESC")
-if err != nil {
-    var vErr *sqld.ValidationError
-    if errors.As(err, &vErr) {
-        // Handle invalid ORDER BY clause
-    }
-}
-```
-
-### Parameterized Query Enforcement
-
-```go
-// All values are automatically parameterized
-where := sqld.NewWhereBuilder(sqld.Postgres)
-where.Equal("status", "'; DROP TABLE users; --") // Safe - becomes parameter $1
-
-// Raw SQL still uses parameters
-where.Raw("created_at > ?", time.Now()) // Safe - properly parameterized
-```
-
-## API Reference
-
-### WhereBuilder Methods
-
-| Method | Description | Example |
-|--------|-------------|---------|
-| `Equal(column, value)` | Adds an equality condition | `where.Equal("status", "active")` |
-| `NotEqual(column, value)` | Adds a not-equal condition | `where.NotEqual("status", "deleted")` |
-| `GreaterThan(column, value)` | Adds a greater-than condition | `where.GreaterThan("age", 18)` |
-| `LessThan(column, value)` | Adds a less-than condition | `where.LessThan("price", 100)` |
-| `Like(column, pattern)` | Adds a LIKE condition | `where.Like("name", "%john%")` |
-| `ILike(column, pattern)` | Adds a case-insensitive LIKE | `where.ILike("email", "%@gmail.com")` |
-| `In(column, values)` | Adds an IN condition | `where.In("id", []interface{}{1, 2, 3})` |
-| `Between(column, start, end)` | Adds a BETWEEN condition | `where.Between("date", start, end)` |
-| `IsNull(column)` | Adds an IS NULL condition | `where.IsNull("deleted_at")` |
-| `IsNotNull(column)` | Adds an IS NOT NULL condition | `where.IsNotNull("verified_at")` |
-| `Or(func)` | Groups conditions with OR | `where.Or(func(or ConditionBuilder) { ... })` |
-| `Raw(sql, params...)` | Adds raw SQL | `where.Raw("custom_func(?) = ?", col, val)` |
-| `Build()` | Returns SQL string and parameters | `sql, params := where.Build()` |
-| `HasConditions()` | Checks if any conditions exist | `if where.HasConditions() { ... }` |
-
-### Utility Functions
-
-| Function | Description |
-|----------|-------------|
-| `SearchPattern(text, mode)` | Creates LIKE patterns ("contains", "prefix", "suffix", "exact") |
-| `ConditionalWhere(builder, column, value)` | Adds condition only if value is not empty/nil |
-| `CombineConditions(dialect, builders...)` | Combines multiple WHERE builders |
-| `InjectWhereCondition(query, builder, dialect)` | Injects conditions into existing SQL |
-| `SearchQuery(sql, dialect, where, cursor, orderBy, limit, params...)` | Processes SQLc queries with annotations |
-
-### OrderByBuilder Methods
-
-| Method | Description | Example |
-|--------|-------------|---------|
-| `NewOrderByBuilder()` | Creates a new OrderByBuilder | `orderBy := sqld.NewOrderByBuilder()` |
-| `Add(field, direction)` | Adds a sort field with direction | `orderBy.Add("name", sqld.SortAsc)` |
-| `Asc(field)` | Adds ascending sort field | `orderBy.Asc("name")` |
-| `Desc(field)` | Adds descending sort field | `orderBy.Desc("created_at")` |
-| `Clear()` | Removes all sort fields | `orderBy.Clear()` |
-| `HasFields()` | Checks if any fields are defined | `if orderBy.HasFields() { ... }` |
-| `GetFields()` | Returns copy of sort fields | `fields := orderBy.GetFields()` |
-| `Build()` | Generates ORDER BY clause | `sql := orderBy.Build()` |
-| `BuildWithPrefix()` | Generates with "ORDER BY" prefix | `sql := orderBy.BuildWithPrefix()` |
-
-### Sorting Functions
-
-| Function | Description |
-|----------|-------------|
-| `ParseSortFields(input)` | Parses sort fields from string or array |
-| `ParseSortFromRequest(request, config)` | Extracts sorting from HTTP request |
-| `ParseSortFromValues(values, config)` | Extracts sorting from url.Values |
-| `FromRequestWithSort(request, dialect, config)` | Parses both filters and sorting |
-| `SortFieldFromString(s)` | Parses single sort field from string |
-| `ParseSortDirection(dir)` | Converts string to SortDirection |
-
-### EnhancedQueries Methods
-
-| Method | Description |
-|--------|-------------|
-| `DynamicQuery(ctx, baseQuery, where, scanFn)` | Executes a dynamic query with conditions |
-| `DynamicQueryRow(ctx, baseQuery, where)` | Executes a query returning single row |
-| `PaginationQuery(ctx, baseQuery, where, limit, offset, orderBy)` | Builds paginated query with validation |
-| `SearchQuery(baseQuery, searchColumns, searchText, filters)` | Builds search query across multiple columns |
-
-### Transaction Methods
-
-| Method | Description |
-|--------|-------------|
-| `NewStandardDB(db, dialect)` | Creates a transaction-enabled database wrapper |
-| `NewTransactionalQueries(queries, db, dialect, txManager)` | Creates transactional queries wrapper |
-| `WithTx(ctx, opts, fn)` | Executes function within a transaction |
-| `RunInTransaction(ctx, txManager, opts, operations...)` | Runs multiple operations in a transaction |
-| `BeginTx(ctx, opts)` | Begins a new transaction |
-| `Commit(ctx)` | Commits the transaction |
-| `Rollback(ctx)` | Rolls back the transaction |
-
-### Error Handling Functions
-
-| Function | Description |
-|----------|-------------|
-| `WrapQueryError(err, query, params, context)` | Wraps error with query context |
-| `WrapTransactionError(err, operation)` | Wraps error with transaction context |
-
-### Validation Functions
-
-| Function | Description |
-|----------|-------------|
-| `ValidateQuery(query, dialect)` | Validates query for security issues |
-| `ValidateColumnName(column)` | Validates column name for safety |
-| `ValidateTableName(table)` | Validates table name for safety |
-| `ValidateOrderBy(orderBy)` | Validates ORDER BY clause |
-| `ValidateValue(value)` | Validates parameter value |
-| `SanitizeIdentifier(identifier, dialect)` | Sanitizes identifier for safe use |
-
-### QueryFilter Functions
-
-| Function | Description |
-|----------|-------------|
-| `ParseQueryString(queryString, config)` | Parses URL query string into Filter objects |
-| `ParseRequest(request, config)` | Parses HTTP request query parameters into filters |
-| `ParseURLValues(values, config)` | Parses url.Values into Filter objects |
-| `FromRequest(request, dialect, config)` | One-step: HTTP request → WhereBuilder |
-| `FromQueryString(queryString, dialect, config)` | One-step: query string → WhereBuilder |
-| `ApplyFiltersToBuilder(filters, builder)` | Applies parsed filters to WhereBuilder |
-| `MapOperator(opString)` | Converts string to Operator constant |
-| `DefaultQueryFilterConfig()` | Returns default configuration |
-
-### QueryFilterConfig Options
-
-| Option | Type | Description |
-|--------|------|-------------|
-| `AllowedFields` | `map[string]bool` | Whitelist of fields that can be filtered |
-| `FieldMappings` | `map[string]string` | Maps query param names to database columns |
-| `DefaultOperator` | `Operator` | Default operator when none specified |
-| `DateLayout` | `string` | Go time layout for parsing dates |
-| `MaxFilters` | `int` | Maximum number of filters to prevent abuse |
-
-## Database Support
-
-### PostgreSQL
-- Full support for all features
-- Native `ILIKE` for case-insensitive searches
-- Parameter placeholders: `$1, $2, $3...`
-- Full-text search with `to_tsvector` and `plainto_tsquery`
-
-### MySQL
-- Full support with adaptations
-- `ILIKE` emulated with `LOWER(column) LIKE LOWER(pattern)`
-- Parameter placeholders: `?, ?, ?...`
-- Full-text search uses `LIKE` patterns
-
-### SQLite
-- Full support with adaptations
-- `ILIKE` emulated with `LOWER(column) LIKE LOWER(pattern)`
-- Parameter placeholders: `?, ?, ?...`
-- Full-text search uses `LIKE` patterns
+---
 
 ## Best Practices
 
-### 1. Use Context and Structured Error Handling
+### 1. Configuration Management
 
-Always use context.Context and handle structured errors:
-
+**[+] DO: Create reusable configurations**
 ```go
-func SearchUsers(ctx context.Context, filter UserFilter) ([]User, error) {
-    where := sqld.NewWhereBuilder(sqld.Postgres)
-    
-    // Use ConditionalWhere for optional filters
-    sqld.ConditionalWhere(where, "name", filter.Name)
-    sqld.ConditionalWhere(where, "status", filter.Status)
-    
-    var users []User
-    err := enhanced.DynamicQuery(ctx, baseQuery, where, func(rows sqld.Rows) error {
-        result, err := sqld.ScanToSlice(rows, func(rows sqld.Rows) (User, error) {
-            var u User
-            err := rows.Scan(&u.ID, &u.Name, &u.Email, &u.Status)
-            return u, err
-        })
-        users = result
-        return err
+// configs/database.go
+func UserQueryConfig() *sqld.Config {
+    return sqld.DefaultConfig().
+        WithAllowedFields(map[string]bool{
+            "name": true, "email": true, "status": true, "created_at": true,
+        }).
+        WithFieldMappings(map[string]string{
+            "signup_date": "created_at",
+            "username": "name",
+        }).
+        WithMaxFilters(10).
+        WithMaxSortFields(3)
+}
+```
+
+**[-] DON'T: Inline configurations everywhere**
+```go
+// Repeated configuration in every handler - hard to maintain
+config := sqld.DefaultConfig().WithAllowedFields(...)
+```
+
+### 2. Security First
+
+**[+] DO: Always use field whitelisting in production**
+```go
+config := sqld.DefaultConfig().
+    WithAllowedFields(map[string]bool{
+        "name": true,      // [+] Explicitly allowed
+        "email": true,     // [+] Explicitly allowed
+        // password field not listed = automatically blocked
     })
-    
-    if err != nil {
-        var vErr *sqld.ValidationError
-        if errors.As(err, &vErr) {
-            return nil, fmt.Errorf("invalid filter %s: %s", vErr.Field, vErr.Message)
-        }
-        return nil, sqld.WrapQueryError(err, baseQuery, nil, "searching users")
-    }
-    
-    return users, nil
-}
 ```
 
-### 2. Always Whitelist Fields for Security
-
+**[-] DON'T: Allow all fields (default behavior)**
 ```go
-config := &sqld.QueryFilterConfig{
-    // Security: Only allow filtering on approved fields
-    AllowedFields: map[string]bool{
-        "name":    true,
-        "email":   true, 
-        "status":  true,
-        "country": true,
-    },
-    
-    // Map external API names to internal columns
-    FieldMappings: map[string]string{
-        "user_name": "name",
-        "active":    "status",
-    },
-    
-    // Prevent abuse
-    MaxFilters: 10,
-}
-
-// This automatically validates and rejects unknown fields
-where, err := sqld.FromRequest(r, sqld.Postgres, config)
+config := sqld.DefaultConfig()  // [-] Empty AllowedFields = allows all fields
 ```
 
-### 3. Use Transactions for Critical Operations
+### 3. Error Handling
 
+**[+] DO: Provide context in error messages**
 ```go
-func TransferFunds(ctx context.Context, fromID, toID int, amount decimal.Decimal) error {
-    return txQueries.WithTx(ctx, &sqld.TxOptions{
-        IsolationLevel: sql.LevelSerializable,
-    }, func(ctx context.Context, queries *sqld.EnhancedQueries[*db.Queries]) error {
-        // Debit from source account
-        err := queries.Queries().DebitAccount(ctx, db.DebitAccountParams{
-            ID:     fromID,
-            Amount: amount,
-        })
-        if err != nil {
-            return sqld.WrapQueryError(err, "", nil, "debiting source account")
-        }
+users, err := sqld.QueryAll[db.User](ctx, database, query, ...)
+if err != nil {
+    var queryErr *sqld.QueryError
+    if errors.As(err, &queryErr) {
+        // Log detailed error for developers
+        log.Printf("Query failed: %s, params: %+v, context: %s", 
+            queryErr.Query, queryErr.Parameters, queryErr.Context)
         
-        // Credit to destination account
-        err = queries.Queries().CreditAccount(ctx, db.CreditAccountParams{
-            ID:     toID,
-            Amount: amount,
-        })
-        if err != nil {
-            return sqld.WrapQueryError(err, "", nil, "crediting destination account")
-        }
-        
-        // Log the transfer
-        _, err = queries.Queries().LogTransfer(ctx, db.LogTransferParams{
-            FromID: fromID,
-            ToID:   toID,
-            Amount: amount,
-        })
-        if err != nil {
-            return sqld.WrapQueryError(err, "", nil, "logging transfer")
-        }
-        
-        return nil // Transaction commits automatically
-    })
+        // Return safe error to users
+        http.Error(w, "Invalid query parameters", http.StatusBadRequest)
+        return
+    }
+    
+    // Handle other error types
+    http.Error(w, "Internal server error", http.StatusInternalServerError)
 }
 ```
 
-### 4. Validate and Limit Input Size
+### 4. Performance Optimization
 
+**[+] DO: Use appropriate limits and pagination**
 ```go
-// Prevent extremely large IN clauses
-if len(ids) > 1000 {
-    return &sqld.ValidationError{
-        Field:   "ids",
-        Value:   len(ids),
-        Message: "too many IDs in filter (max 1000)",
-    }
+limit := 50  // Reasonable default
+if requestedLimit > 100 {
+    limit = 100  // Cap maximum results
 }
 
-// Validate ORDER BY clause
-if orderBy != "" {
-    if err := sqld.ValidateOrderBy(orderBy); err != nil {
-        return err
-    }
-}
-
-values := make([]interface{}, len(ids))
-for i, id := range ids {
-    values[i] = id
-}
-where.In("id", values)
+users, err := sqld.QueryAll[db.User](
+    ctx, db, query, sqld.Postgres,
+    where, cursor, orderBy, limit,
+)
 ```
 
-### 5. Monitor and Log Security Events
-
-```go
-func handleQueryError(r *http.Request, err error) {
-    var vErr *sqld.ValidationError
-    if errors.As(err, &vErr) {
-        // Log potential security issues
-        if strings.Contains(vErr.Message, "injection") {
-            log.Printf("SECURITY: Potential injection attempt from %s: field=%s, value=%v", 
-                r.RemoteAddr, vErr.Field, vErr.Value)
-        }
-    }
-}
-```
-
-### 6. Index Columns Used in WHERE Clauses
-
-Ensure your database has appropriate indexes for columns frequently used in dynamic queries:
-
+**[+] DO: Index fields used for filtering and sorting**
 ```sql
-CREATE INDEX idx_users_status ON users(status);
-CREATE INDEX idx_users_created_at ON users(created_at);
-CREATE INDEX idx_users_email ON users(email);
+-- Add database indexes for commonly filtered/sorted fields
+CREATE INDEX idx_users_status_created_at ON users(status, created_at);
+CREATE INDEX idx_users_name_gin ON users USING gin(name gin_trgm_ops);  -- PostgreSQL full-text search
 ```
 
-## Testing
+### 5. Testing Strategies
 
-sqld has comprehensive test coverage with 95+ test cases covering all functionality.
-
-Run the full test suite:
-
-```bash
-go test ./...
-```
-
-Run with coverage report:
-
-```bash
-go test -cover ./...
-```
-
-Run specific test categories:
-
-```bash
-# Core query building tests
-go test -run TestWhereBuilder
-
-# Security validation tests  
-go test -run TestValidate
-
-# Transaction tests
-go test -run TestTransaction
-
-# Error handling tests
-go test -run TestError
-
-# HTTP integration tests
-go test -run TestFromRequest
-```
-
-Run benchmarks:
-
-```bash
-go test -bench=.
-```
-
-The test suite includes:
-- **Unit tests** for all public APIs
-- **Security tests** for SQL injection prevention
-- **Integration tests** for database adapters
-- **Error handling tests** for structured error types
-- **Transaction tests** for rollback/commit behavior
-- **Validation tests** for input sanitization
-- **Performance benchmarks** for query building
-- **Mock-based tests** for external dependencies
-
-## Performance Considerations
-
-- **No Reflection**: sqld uses direct type assertions and explicit interfaces
-- **Minimal Allocations**: Builders reuse internal slices where possible  
-- **Prepared Statements**: All queries use parameterized placeholders
-- **Zero Dependencies**: No external libraries means minimal overhead
-- **Efficient Validation**: Security checks are optimized with compiled regexes
-- **Context Aware**: Proper context.Context support for cancellation and timeouts
-- **Transaction Pooling**: Efficient transaction management with automatic cleanup
-- **Benchmark Tested**: All core operations are benchmarked for performance regression detection
-
-### Benchmark Results
-
-```bash
-BenchmarkWhereBuilderSimple-8          2000000    750 ns/op    248 B/op    6 allocs/op
-BenchmarkWhereBuilderComplex-8         1000000   1500 ns/op    512 B/op   12 allocs/op
-BenchmarkValidateQuery-8               5000000    300 ns/op     64 B/op    2 allocs/op
-```
-
-The library is designed for high-throughput applications with minimal performance impact.
-
-## Troubleshooting
-
-### Common Issues
-
-**Issue**: ValidationError for valid column names
+**[+] DO: Test with real database scenarios**
 ```go
-// Solution: Check for special characters or SQL keywords
-err := sqld.ValidateColumnName("user-name") // Invalid: contains hyphen
-err := sqld.ValidateColumnName("user_name") // Valid: uses underscore
-
-// Use SanitizeIdentifier for user input
-safe := sqld.SanitizeIdentifier("user-input", sqld.Postgres) // "user_input"
-```
-
-**Issue**: QueryError with context information
-```go
-// Handle structured errors properly
-var qErr *sqld.QueryError
-if errors.As(err, &qErr) {
-    log.Printf("Query failed in %s: %v", qErr.Context, qErr.Unwrap())
-    log.Printf("SQL: %s", qErr.Query)
-    log.Printf("Params: %v", qErr.Params)
+func TestUserFiltering(t *testing.T) {
+    db := setupTestDB(t)  // Use real database (SQLite for tests)
+    
+    // Create test data
+    createTestUsers(t, db)
+    
+    // Test filtering
+    config := UserQueryConfig()
+    where, err := sqld.FromQueryString("name[contains]=john&status=active", sqld.SQLite, config)
+    require.NoError(t, err)
+    
+    users, err := sqld.QueryAll[User](ctx, db, SearchUsersQuery, sqld.SQLite, where, nil, nil, 50)
+    require.NoError(t, err)
+    
+    // Verify results
+    assert.Greater(t, len(users), 0)
+    for _, user := range users {
+        assert.Contains(t, strings.ToLower(user.Name), "john")
+        assert.Equal(t, "active", user.Status)
+    }
 }
 ```
 
-**Issue**: Transaction rollback on context cancellation
-```go
-// Ensure proper context handling in transactions
-ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-defer cancel()
+### 6. Gradual Adoption
 
-err := txQueries.WithTx(ctx, nil, func(ctx context.Context, queries *sqld.EnhancedQueries[*db.Queries]) error {
-    // Check context regularly in long operations
-    select {
-    case <-ctx.Done():
-        return ctx.Err()
-    default:
-        // Continue with operations
+**[+] DO: Migrate incrementally**
+```go
+// Phase 1: Add sqld to new endpoints
+func NewAdvancedSearch(w http.ResponseWriter, r *http.Request) {
+    // Use sqld from the start
+    users, err := getUsersWithSqld(ctx, db, r)
+    // ...
+}
+
+// Phase 2: Keep existing simple endpoints unchanged
+func GetUserByID(w http.ResponseWriter, r *http.Request) {  
+    // Keep using direct SQLc calls for simple cases
+    user, err := queries.GetUser(ctx, userID)
+    // ...
+}
+
+// Phase 3: Gradually replace when adding features
+func ListUsersEnhanced(w http.ResponseWriter, r *http.Request) {
+    // Replace when adding pagination, filtering, etc.
+    users, err := getUsersWithSqld(ctx, db, r)
+    // ...
+}
+```
+
+### 7. Documentation and API Design
+
+**[+] DO: Document your query parameters**
+```go
+// GET /users - List users with optional filtering and sorting
+//
+// Query Parameters:
+//   name[contains]     - Filter by name containing text
+//   status             - Filter by exact status (active, inactive, pending)  
+//   age[gte]           - Filter by minimum age
+//   sort               - Sort fields: name:asc, created_at:desc, etc.
+//   limit              - Maximum results (default: 20, max: 100)
+//   cursor             - Pagination cursor for next page
+//
+// Examples:
+//   GET /users?name[contains]=john&status=active&sort=name:asc
+//   GET /users?age[gte]=18&sort=created_at:desc&limit=50
+func ListUsers(w http.ResponseWriter, r *http.Request) {
+    // Implementation
+}
+```
+
+### 8. Monitoring and Observability
+
+**[+] DO: Add metrics and logging**
+```go
+func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request) {
+    start := time.Now()
+    defer func() {
+        duration := time.Since(start)
+        h.metrics.QueryDuration.Observe(duration.Seconds())
+    }()
+    
+    // Parse query parameters
+    where, orderBy, err := sqld.FromRequestWithSort(r, sqld.Postgres, h.config)
+    if err != nil {
+        h.metrics.QueryErrors.WithLabelValues("invalid_params").Inc()
+        http.Error(w, "Invalid query parameters", 400)
+        return
     }
-    return nil
-})
+    
+    // Log query details (be careful with sensitive data)
+    h.logger.Debug("executing user query",
+        "filters", where.HasConditions(),
+        "sorting", orderBy.HasFields(),
+        "user_id", getCurrentUserID(r),
+    )
+    
+    // Execute query
+    users, err := sqld.QueryAll[db.User](ctx, h.db, db.ListUsers, sqld.Postgres, where, nil, orderBy, 50)
+    if err != nil {
+        h.metrics.QueryErrors.WithLabelValues("database_error").Inc()
+        h.logger.Error("database query failed", "error", err)
+        http.Error(w, "Internal server error", 500)
+        return
+    }
+    
+    h.metrics.QuerySuccess.Inc()
+    h.metrics.ResultCount.Observe(float64(len(users)))
+    
+    json.NewEncoder(w).Encode(users)
+}
 ```
 
-**Issue**: Parameters are numbered incorrectly in PostgreSQL
-```go
-// Solution: Ensure you're using the correct dialect
-where := sqld.NewWhereBuilder(sqld.Postgres) // Not MySQL or SQLite
-```
-
-**Issue**: SQL injection ValidationError on safe queries
-```go
-// Solution: Use SecureQueryBuilder with validation disabled for trusted queries
-sqb := sqld.NewSecureQueryBuilder(trustedQuery, sqld.Postgres)
-query, params, err := sqb.DisableValidation().Build()
-```
+---
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+### Development Setup
+
+```bash
+# Clone the repository
+git clone https://github.com/getangry/sqld.git
+cd sqld
+
+# Install dependencies
+go mod download
+
+# Run tests
+go test ./...
+
+# Run tests with coverage
+go test -cover ./...
+
+# Run benchmarks
+go test -bench=. ./...
+```
+
+### Running Examples
+
+```bash
+# Start the example application
+cd example
+go run main.go
+
+# The server starts on :8080 with sample endpoints
+# Try: http://localhost:8080/users?name[contains]=john&sort=name:desc
+```
+
+---
 
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## Acknowledgments
+---
 
-- Built to complement [sqlc](https://sqlc.dev) - the amazing SQL compiler
-- Inspired by query builders like [squirrel](https://github.com/Masterminds/squirrel) and [goqu](https://github.com/doug-martin/goqu)
-- Designed for real-world production use cases
+## Related Projects
 
-## Support
+- **[SQLc](https://sqlc.dev)** - Generate type-safe Go code from SQL
+- **[pgx](https://github.com/jackc/pgx)** - PostgreSQL driver and toolkit for Go
+- **[Squirrel](https://github.com/Masterminds/squirrel)** - SQL query builder for Go
+- **[GORM](https://gorm.io)** - Full-featured ORM for Go
 
-For issues, questions, or suggestions, please [open an issue](https://github.com/getangry/sqld/issues) on GitHub.
+---
+
+**sqld** - Enhancing SQLc with dynamic query capabilities
+
+Made with care by the sqld team
