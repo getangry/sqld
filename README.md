@@ -57,7 +57,16 @@ go get github.com/getangry/sqld
 
 ## Quick Start
 
-### Basic Usage
+### Basic Usage with SQLc Annotations
+
+```sql
+-- queries.sql
+-- name: SearchUsers :many
+SELECT id, name, email, age, status, role, country, verified, created_at
+FROM users
+WHERE deleted_at IS NULL /* sqld:where */
+ORDER BY created_at DESC /* sqld:orderby */ /* sqld:limit */;
+```
 
 ```go
 package main
@@ -65,62 +74,75 @@ package main
 import (
     "context"
     "errors"
-    "fmt"
     "log"
+    "net/http"
     
     "github.com/getangry/sqld"
-    // Your sqlc-generated package
-    "yourproject/db"
+    "yourproject/db" // Your sqlc-generated package
 )
 
-func main() {
-    ctx := context.Background()
+func SearchUsers(w http.ResponseWriter, r *http.Request) {
+    ctx := r.Context()
     
-    // Create a WHERE builder with automatic validation
-    where := sqld.NewWhereBuilder(sqld.Postgres)
+    // Configure allowed query parameters
+    config := &sqld.QueryFilterConfig{
+        AllowedFields: map[string]bool{
+            "name": true, "email": true, "status": true, "age": true,
+        },
+        MaxFilters: 10,
+    }
     
-    // Add conditions (automatically validated for SQL injection)
-    where.Equal("status", "active")
-    where.GreaterThan("age", 18)
-    where.ILike("name", "%john%")
+    // Parse filters from URL: /users?name[contains]=john&age[gte]=18&status=active
+    where, err := sqld.FromRequest(r, sqld.Postgres, config)
+    if err != nil {
+        http.Error(w, "Invalid filters", http.StatusBadRequest)
+        return
+    }
     
-    // Build the SQL and get parameters
-    sql, params := where.Build()
-    fmt.Printf("SQL: %s\n", sql)
-    // Output: SQL: status = $1 AND age > $2 AND name ILIKE $3
-    fmt.Printf("Params: %v\n", params)
-    // Output: Params: [active 18 %john%]
-    
-    // Enhanced queries with context and comprehensive error handling
-    queries := db.New(conn)
-    enhanced := sqld.NewEnhanced(queries, conn, sqld.Postgres)
-    
-    baseQuery := "SELECT id, name, email FROM users"
-    err := enhanced.DynamicQuery(ctx, baseQuery, where, func(rows sqld.Rows) error {
-        for rows.Next() {
-            var id int
-            var name, email string
-            if err := rows.Scan(&id, &name, &email); err != nil {
-                return sqld.WrapQueryError(err, baseQuery, params, "scanning user")
-            }
-            fmt.Printf("User: %d, %s, %s\n", id, name, email)
-        }
-        return nil
+    // Parse sorting: /users?sort=name:desc,created_at:asc
+    orderBy, _ := sqld.ParseSortFromRequest(r, &sqld.OrderByConfig{
+        AllowedFields: map[string]bool{"name": true, "created_at": true},
     })
     
+    // Use SQLc query with annotations
+    finalSQL, params, err := sqld.SearchQuery(
+        db.SearchUsers,  // SQLc-generated query constant
+        sqld.Postgres,
+        where,           // Dynamic filters
+        nil,             // Cursor (for pagination)
+        orderBy,         // Dynamic sorting
+        20,              // Limit
+    )
     if err != nil {
-        // Handle structured errors with context
-        var qErr *sqld.QueryError
-        var vErr *sqld.ValidationError
-        
-        if errors.As(err, &qErr) {
-            log.Printf("Query failed in %s: %v", qErr.Context, qErr.Unwrap())
-        } else if errors.As(err, &vErr) {
-            log.Printf("Validation failed for %s: %s", vErr.Field, vErr.Message)
-        } else {
-            log.Printf("Unexpected error: %v", err)
-        }
+        log.Printf("Failed to build query: %v", err)
+        http.Error(w, "Internal error", http.StatusInternalServerError)
+        return
     }
+    
+    // Execute with your database connection
+    rows, err := conn.Query(ctx, finalSQL, params...)
+    if err != nil {
+        log.Printf("Query failed: %v", err)
+        http.Error(w, "Internal error", http.StatusInternalServerError)
+        return
+    }
+    defer rows.Close()
+    
+    // Scan into SQLc-generated types
+    var users []db.User
+    for rows.Next() {
+        var u db.User
+        err := rows.Scan(&u.ID, &u.Name, &u.Email, &u.Age, &u.Status, 
+                        &u.Role, &u.Country, &u.Verified, &u.CreatedAt)
+        if err != nil {
+            log.Printf("Scan failed: %v", err)
+            continue
+        }
+        users = append(users, u)
+    }
+    
+    // Return as JSON
+    json.NewEncoder(w).Encode(users)
 }
 ```
 
@@ -167,29 +189,33 @@ import (
 conn, err := pgx.Connect(ctx, "postgres://...")
 queries := db.New(conn)
 
-// Enhance with dynamic capabilities
-enhanced := sqld.NewEnhanced(queries, conn, sqld.Postgres)
+// Use original SQLc methods for simple queries
+user, err := queries.GetUser(ctx, 1)
+users, err := queries.ListUsers(ctx)
 
-// Use original SQLc methods
-user, err := enhanced.Queries().GetUser(ctx, 1)
-users, err := enhanced.Queries().ListUsers(ctx)
+// For dynamic filtering, use SQLc queries with annotations
+// In your queries.sql:
+// -- name: SearchUsers :many
+// SELECT * FROM users 
+// WHERE deleted_at IS NULL /* sqld:where */
+// ORDER BY created_at DESC /* sqld:orderby */ /* sqld:limit */;
 
-// Use dynamic queries for flexible filtering
+// At runtime, enhance the query with filters
 where := sqld.NewWhereBuilder(sqld.Postgres)
 where.Equal("status", "active").GreaterThan("age", 18)
 
-baseQuery := "SELECT id, name, email, age, status FROM users"
-enhanced.DynamicQuery(ctx, baseQuery, where, func(rows sqld.Rows) error {
-    for rows.Next() {
-        var user db.User // Use your generated struct
-        err := rows.Scan(&user.ID, &user.Name, &user.Email, &user.Age, &user.Status)
-        if err != nil {
-            return err
-        }
-        // Process user
-    }
-    return nil
-})
+finalSQL, params, err := sqld.SearchQuery(
+    db.SearchUsers,  // SQLc-generated query constant
+    sqld.Postgres,
+    where,           // Dynamic filters
+    nil,             // Cursor
+    nil,             // OrderBy
+    20,              // Limit
+)
+
+// Execute the enhanced query
+rows, err := conn.Query(ctx, finalSQL, params...)
+// Scan into your SQLc-generated structs
 ```
 
 #### 2. HTTP API Integration
@@ -217,16 +243,26 @@ func SearchUsers(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Add business logic (always exclude deleted users)
-    where.IsNull("deleted_at")
-
-    // Execute with your generated types
-    baseQuery := "SELECT id, name, email, age, status FROM users"
-    enhanced.DynamicQuery(r.Context(), baseQuery, where, func(rows sqld.Rows) error {
-        // Scan into your generated db.User struct
-        // Return as JSON
-        return nil
+    // Parse sorting from URL: /users?sort=name:desc,created_at:asc
+    orderBy, _ := sqld.ParseSortFromRequest(r, &sqld.OrderByConfig{
+        AllowedFields: map[string]bool{
+            "name": true, "created_at": true, "updated_at": true,
+        },
     })
+
+    // Use your SQLc query with annotations
+    finalSQL, params, err := sqld.SearchQuery(
+        db.SearchUsers,  // SQLc query: SELECT * FROM users WHERE deleted_at IS NULL /* sqld:where */ ORDER BY created_at DESC /* sqld:orderby */ /* sqld:limit */
+        sqld.Postgres,
+        where,           // Dynamic filters from query params
+        nil,             // Cursor for pagination
+        orderBy,         // Dynamic sorting
+        20,              // Limit
+    )
+    
+    // Execute and scan into SQLc-generated types
+    rows, err := conn.Query(r.Context(), finalSQL, params...)
+    // ... scan into []db.User and return as JSON
 }
 ```
 
@@ -463,31 +499,46 @@ where.Or(func(or sqld.ConditionBuilder) {
 
 ### Integration with SQLc
 
-#### Enhance Existing Queries
+#### Writing SQLc Queries with Annotations
+
+```sql
+-- queries.sql
+
+-- name: SearchUsers :many
+-- Basic search with all annotations
+SELECT id, name, email, status, created_at 
+FROM users
+WHERE deleted_at IS NULL /* sqld:where */
+ORDER BY created_at DESC /* sqld:orderby */ /* sqld:limit */;
+
+-- name: SearchUsersByStatus :many
+-- Search with a required parameter
+SELECT id, name, email, status, created_at
+FROM users  
+WHERE status = $1 AND deleted_at IS NULL /* sqld:where */
+ORDER BY created_at DESC /* sqld:orderby */ /* sqld:limit */;
+
+-- name: SearchPosts :many
+-- Complex query with joins
+SELECT p.id, p.title, p.content, u.name as author_name
+FROM posts p
+JOIN users u ON p.user_id = u.id
+WHERE p.published = true /* sqld:where */
+ORDER BY p.created_at DESC /* sqld:cursor */ /* sqld:orderby */ /* sqld:limit */;
+```
+
+#### Using Annotated Queries in Go
 
 ```go
-// Assuming you have sqlc-generated code:
-// type Queries struct { ... }
-// func (q *Queries) GetUser(ctx context.Context, id int64) (User, error) { ... }
-
 type UserService struct {
-    enhanced *sqld.EnhancedQueries[*Queries]
+    queries *db.Queries  // SQLc-generated queries
+    conn    *pgx.Conn    // Database connection
 }
 
-func NewUserService(queries *Queries, db sqld.DBTX) *UserService {
-    return &UserService{
-        enhanced: sqld.NewEnhanced(queries, db, sqld.Postgres),
-    }
-}
-
-func (s *UserService) SearchUsers(ctx context.Context, filters UserFilters) ([]User, error) {
-    baseQuery := `
-        SELECT id, name, email, status, created_at 
-        FROM users`
-    
+func (s *UserService) SearchUsers(ctx context.Context, filters UserFilters) ([]db.User, error) {
+    // Build dynamic filters
     where := sqld.NewWhereBuilder(sqld.Postgres)
     
-    // Add dynamic filters
     if filters.Name != "" {
         where.ILike("name", sqld.SearchPattern(filters.Name, "contains"))
     }
@@ -504,39 +555,38 @@ func (s *UserService) SearchUsers(ctx context.Context, filters UserFilters) ([]U
         where.In("tag", tagInterfaces)
     }
     
-    // Execute dynamic query
-    var users []User
-    err := s.enhanced.DynamicQuery(ctx, baseQuery, where, func(rows sqld.Rows) error {
-        result, err := sqld.ScanToSlice(rows, func(rows sqld.Rows) (User, error) {
-            var u User
-            err := rows.Scan(&u.ID, &u.Name, &u.Email, &u.Status, &u.CreatedAt)
-            return u, err
-        })
-        users = result
-        return err
-    })
+    // Process SQLc query with annotations
+    finalSQL, params, err := sqld.SearchQuery(
+        db.SearchUsers,  // SQLc-generated query constant
+        sqld.Postgres,
+        where,           // Dynamic filters
+        nil,             // Cursor
+        nil,             // OrderBy  
+        20,              // Limit
+    )
+    if err != nil {
+        return nil, err
+    }
     
-    return users, err
+    // Execute and scan into SQLc types
+    rows, err := s.conn.Query(ctx, finalSQL, params...)
+    if err != nil {
+        return nil, err
+    }
+    defer rows.Close()
+    
+    var users []db.User
+    for rows.Next() {
+        var u db.User
+        err := rows.Scan(&u.ID, &u.Name, &u.Email, &u.Status, &u.CreatedAt)
+        if err != nil {
+            return nil, err
+        }
+        users = append(users, u)
+    }
+    
+    return users, rows.Err()
 }
-```
-
-#### Inject Conditions into Existing Queries
-
-```go
-// Start with your sqlc query
-originalQuery := `SELECT * FROM users WHERE role = $1`
-
-// Add dynamic conditions
-where := sqld.NewWhereBuilder(sqld.Postgres)
-where.Equal("status", "active")
-where.GreaterThan("created_at", lastWeek)
-
-// Inject the conditions
-enhancedQuery, params := sqld.InjectWhereCondition(originalQuery, where, sqld.Postgres)
-// Result: SELECT * FROM users WHERE role = $1 AND status = $2 AND created_at > $3
-
-// Combine original and new parameters
-allParams := append([]interface{}{"admin"}, params...)
 ```
 
 ### HTTP Query Parameter Filtering
