@@ -94,7 +94,7 @@ func ExampleConditionalWhere() {
 	status := "active"
 
 	// These will be ignored (empty/nil)
-	var email string // empty
+	var email string    // empty
 	var country *string // nil
 
 	sqld.ConditionalWhere(where, "name", name)
@@ -139,8 +139,8 @@ func Example_dialects() {
 
 // Helper function for example
 func contains(s, substr string) bool {
-	return len(s) >= len(substr) && s[0:len(substr)] == substr || 
-		   (len(s) > len(substr) && contains(s[1:], substr))
+	return len(s) >= len(substr) && s[0:len(substr)] == substr ||
+		(len(s) > len(substr) && contains(s[1:], substr))
 }
 
 // UserFilters represents common search criteria

@@ -114,7 +114,7 @@ func TestWhereBuilder_SQLite(t *testing.T) {
 
 func TestEmptyConditions(t *testing.T) {
 	builder := NewWhereBuilder(Postgres)
-	
+
 	sql, params := builder.Build()
 	assert.Empty(t, sql)
 	assert.Empty(t, params)
@@ -123,7 +123,7 @@ func TestEmptyConditions(t *testing.T) {
 
 func TestNilValueHandling(t *testing.T) {
 	builder := NewWhereBuilder(Postgres)
-	
+
 	// These should be ignored
 	builder.Equal("name", nil)
 	builder.NotEqual("email", nil)
@@ -144,7 +144,7 @@ func TestNilValueHandling(t *testing.T) {
 
 func TestQueryBuilder(t *testing.T) {
 	baseQuery := "SELECT * FROM users"
-	
+
 	where := NewWhereBuilder(Postgres)
 	where.Equal("status", "active")
 	where.GreaterThan("age", 18)
@@ -153,7 +153,7 @@ func TestQueryBuilder(t *testing.T) {
 	qb.Where(where)
 
 	query, params := qb.Build()
-	
+
 	expectedQuery := "SELECT * FROM users WHERE status = $1 AND age > $2"
 	assert.Equal(t, expectedQuery, query)
 	assert.Equal(t, []interface{}{"active", 18}, params)
@@ -184,24 +184,24 @@ func TestConditionalWhere(t *testing.T) {
 	builder := NewWhereBuilder(Postgres)
 
 	// Test different types
-	ConditionalWhere(builder, "name", "John")        // string - should add
-	ConditionalWhere(builder, "email", "")           // empty string - should skip
-	ConditionalWhere(builder, "age", 25)             // int - should add
-	ConditionalWhere(builder, "count", 0)            // zero int - should skip
+	ConditionalWhere(builder, "name", "John") // string - should add
+	ConditionalWhere(builder, "email", "")    // empty string - should skip
+	ConditionalWhere(builder, "age", 25)      // int - should add
+	ConditionalWhere(builder, "count", 0)     // zero int - should skip
 
 	var nilString *string
 	validString := "US"
-	ConditionalWhere(builder, "country1", nilString)   // nil pointer - should skip
+	ConditionalWhere(builder, "country1", nilString)    // nil pointer - should skip
 	ConditionalWhere(builder, "country2", &validString) // valid pointer - should add
 
 	sql, params := builder.Build()
-	
+
 	// Should only have name, age, and country2
 	assert.Equal(t, 3, len(params))
 	assert.Equal(t, "John", params[0])
 	assert.Equal(t, 25, params[1])
 	assert.Equal(t, "US", params[2])
-	
+
 	assert.Contains(t, sql, "name = $1")
 	assert.Contains(t, sql, "age = $2")
 	assert.Contains(t, sql, "country2 = $3")
@@ -236,7 +236,7 @@ func TestInjectWhereCondition(t *testing.T) {
 			where.Equal("name", "John")
 
 			query, params := InjectWhereCondition(tt.originalQuery, where, Postgres)
-			
+
 			assert.Equal(t, tt.expectedQuery, query)
 			assert.Equal(t, []interface{}{"John"}, params)
 		})
@@ -253,9 +253,9 @@ func TestCombineConditions(t *testing.T) {
 	where3 := NewWhereBuilder(Postgres) // empty
 
 	combined := CombineConditions(Postgres, where1, where2, where3)
-	
+
 	sql, params := combined.Build()
-	
+
 	// Should contain both conditions
 	assert.Equal(t, 2, len(params)) // One from each where builder
 	assert.Equal(t, []interface{}{"John", "active"}, params)
@@ -269,7 +269,7 @@ func TestRawSQL(t *testing.T) {
 	builder.Equal("status", "active")
 
 	sql, params := builder.Build()
-	
+
 	assert.Contains(t, sql, "DATE_TRUNC('day', created_at) = $1")
 	assert.Contains(t, sql, "status = $2")
 	assert.Equal(t, []interface{}{"2024-01-01", "active"}, params)
@@ -277,10 +277,10 @@ func TestRawSQL(t *testing.T) {
 
 func TestParameterAdjuster(t *testing.T) {
 	adjuster := NewParameterAdjuster(Postgres)
-	
+
 	originalSQL := "name = $1 AND age = $2"
 	adjustedSQL := adjuster.AdjustSQL(originalSQL, 5)
-	
+
 	// Should renumber parameters starting from offset
 	assert.Contains(t, adjustedSQL, "$6") // $1 + 5
 	assert.Contains(t, adjustedSQL, "$7") // $2 + 5
@@ -290,7 +290,7 @@ func TestDialectSpecificFeatures(t *testing.T) {
 	t.Run("PostgreSQL ILIKE", func(t *testing.T) {
 		builder := NewWhereBuilder(Postgres)
 		builder.ILike("name", "%john%")
-		
+
 		sql, _ := builder.Build()
 		assert.Contains(t, sql, "ILIKE")
 	})
@@ -298,7 +298,7 @@ func TestDialectSpecificFeatures(t *testing.T) {
 	t.Run("MySQL ILIKE fallback", func(t *testing.T) {
 		builder := NewWhereBuilder(MySQL)
 		builder.ILike("name", "%john%")
-		
+
 		sql, _ := builder.Build()
 		assert.Contains(t, strings.ToUpper(sql), "LOWER")
 		assert.Contains(t, strings.ToUpper(sql), "LIKE")

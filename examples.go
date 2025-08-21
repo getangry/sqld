@@ -60,10 +60,10 @@ func (s *UserService) SearchUsers(ctx context.Context, filters UserSearchFilters
 	baseQuery := `
 		SELECT id, name, email, status, country, created_at 
 		FROM users`
-	
+
 	// Build dynamic conditions
 	where := NewWhereBuilder(Postgres)
-	
+
 	// Add search conditions
 	if filters.SearchText != "" {
 		searchColumns := []string{"name", "email"}
@@ -73,12 +73,12 @@ func (s *UserService) SearchUsers(ctx context.Context, filters UserSearchFilters
 			where.Raw(searchSQL, searchParams...)
 		}
 	}
-	
+
 	// Add specific filters
 	ConditionalWhere(where, "name", filters.Name)
 	ConditionalWhere(where, "email", filters.Email)
 	ConditionalWhere(where, "status", filters.Status)
-	
+
 	// Add array filter
 	if len(filters.Countries) > 0 {
 		countryValues := make([]interface{}, len(filters.Countries))
@@ -87,12 +87,12 @@ func (s *UserService) SearchUsers(ctx context.Context, filters UserSearchFilters
 		}
 		where.In("country", countryValues)
 	}
-	
+
 	// Add date filter
 	if filters.CreatedAfter != nil {
 		where.GreaterThan("created_at", *filters.CreatedAfter)
 	}
-	
+
 	// Add boolean filter
 	if filters.Active != nil {
 		if *filters.Active {
@@ -101,7 +101,7 @@ func (s *UserService) SearchUsers(ctx context.Context, filters UserSearchFilters
 			where.NotEqual("status", "active")
 		}
 	}
-	
+
 	// Execute the query
 	var users []User
 	err := s.enhanced.DynamicQuery(ctx, baseQuery, where, func(rows Rows) error {
@@ -110,7 +110,7 @@ func (s *UserService) SearchUsers(ctx context.Context, filters UserSearchFilters
 			err := rows.Scan(&u.ID, &u.Name, &u.Email, &u.Status, &u.Country, &u.CreatedAt)
 			return u, err
 		}
-		
+
 		result, err := ScanToSlice(rows, scanFunc)
 		if err != nil {
 			return err
@@ -118,7 +118,7 @@ func (s *UserService) SearchUsers(ctx context.Context, filters UserSearchFilters
 		users = result
 		return nil
 	})
-	
+
 	return users, err
 }
 
@@ -130,35 +130,35 @@ func (s *UserService) SearchUsersWithPagination(
 	orderBy string,
 ) ([]User, int, error) {
 	baseQuery := `SELECT id, name, email, status, country, created_at FROM users`
-	
+
 	// Build conditions (reuse logic from SearchUsers)
 	where := s.buildUserFilters(filters)
-	
+
 	// Get total count
 	countQuery := `SELECT COUNT(*) FROM users`
 	var totalCount int
-	
+
 	countRow := s.enhanced.DynamicQueryRow(ctx, countQuery, where)
 	if err := countRow.Scan(&totalCount); err != nil {
 		return nil, 0, err
 	}
-	
+
 	// Get paginated results
 	offset := (page - 1) * pageSize
 	query, params := s.enhanced.PaginationQuery(baseQuery, where, pageSize, offset, orderBy)
-	
+
 	rows, err := s.enhanced.DB().Query(ctx, query, params...)
 	if err != nil {
 		return nil, 0, err
 	}
 	defer rows.Close()
-	
+
 	users, err := ScanToSlice(rows, func(rows Rows) (User, error) {
 		var u User
 		err := rows.Scan(&u.ID, &u.Name, &u.Email, &u.Status, &u.Country, &u.CreatedAt)
 		return u, err
 	})
-	
+
 	return users, totalCount, err
 }
 
@@ -167,21 +167,21 @@ func (s *UserService) GetUserStats(ctx context.Context, filters UserSearchFilter
 	baseQuery := `
 		SELECT status, COUNT(*) as count 
 		FROM users`
-	
+
 	where := s.buildUserFilters(filters)
-	
+
 	qb := NewQueryBuilder(baseQuery, Postgres)
 	qb.Where(where)
 	query, params := qb.Build()
 	query += " GROUP BY status ORDER BY status"
-	
+
 	rows, err := s.enhanced.DB().Query(ctx, query, params...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	
-	return ScanToMap(rows, 
+
+	return ScanToMap(rows,
 		func(rows Rows) (string, error) {
 			var status string
 			var count int
@@ -200,7 +200,7 @@ func (s *UserService) GetUserStats(ctx context.Context, filters UserSearchFilter
 // buildUserFilters is a helper method to build common user filters
 func (s *UserService) buildUserFilters(filters UserSearchFilters) *WhereBuilder {
 	where := NewWhereBuilder(Postgres)
-	
+
 	// Text search
 	if filters.SearchText != "" {
 		where.Or(func(or ConditionBuilder) {
@@ -208,12 +208,12 @@ func (s *UserService) buildUserFilters(filters UserSearchFilters) *WhereBuilder 
 			or.ILike("email", SearchPattern(filters.SearchText, "contains"))
 		})
 	}
-	
+
 	// Exact matches
 	ConditionalWhere(where, "name", filters.Name)
 	ConditionalWhere(where, "email", filters.Email)
 	ConditionalWhere(where, "status", filters.Status)
-	
+
 	// Array filter
 	if len(filters.Countries) > 0 {
 		countryValues := make([]interface{}, len(filters.Countries))
@@ -222,12 +222,12 @@ func (s *UserService) buildUserFilters(filters UserSearchFilters) *WhereBuilder 
 		}
 		where.In("country", countryValues)
 	}
-	
+
 	// Date filter
 	if filters.CreatedAfter != nil {
 		where.GreaterThan("created_at", *filters.CreatedAfter)
 	}
-	
+
 	return where
 }
 
@@ -238,7 +238,7 @@ func (s *UserService) GetUsersWithOrderStats(
 	minOrderCount int,
 	minOrderTotal float64,
 ) ([]UserWithStats, error) {
-	
+
 	baseQuery := `
 		SELECT 
 			u.id, u.name, u.email, u.status, u.country, u.created_at,
@@ -246,10 +246,10 @@ func (s *UserService) GetUsersWithOrderStats(
 			COALESCE(SUM(o.total), 0) as total_spent
 		FROM users u
 		LEFT JOIN orders o ON o.user_id = u.id AND o.status = 'completed'`
-	
+
 	// Build user filters for WHERE clause
 	where := s.buildUserFilters(userFilters)
-	
+
 	// Build HAVING conditions for aggregates
 	having := NewWhereBuilder(Postgres)
 	if minOrderCount > 0 {
@@ -258,35 +258,35 @@ func (s *UserService) GetUsersWithOrderStats(
 	if minOrderTotal > 0 {
 		having.GreaterThan("COALESCE(SUM(o.total), 0)", minOrderTotal)
 	}
-	
+
 	// Build the complete query
 	qb := NewQueryBuilder(baseQuery, Postgres)
 	qb.Where(where)
 	query, params := qb.Build()
-	
+
 	// Add GROUP BY
 	query += " GROUP BY u.id, u.name, u.email, u.status, u.country, u.created_at"
-	
+
 	// Add HAVING conditions
 	if having.HasConditions() {
 		havingSQL, havingParams := having.Build()
-		
+
 		// Adjust parameter indices for PostgreSQL
 		adjuster := NewParameterAdjuster(Postgres)
 		havingSQL = adjuster.AdjustSQL(havingSQL, len(params))
-		
+
 		query += " HAVING " + havingSQL
 		params = append(params, havingParams...)
 	}
-	
+
 	query += " ORDER BY total_spent DESC"
-	
+
 	rows, err := s.enhanced.DB().Query(ctx, query, params...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	
+
 	return ScanToSlice(rows, func(rows Rows) (UserWithStats, error) {
 		var u UserWithStats
 		err := rows.Scan(
@@ -301,18 +301,18 @@ func (s *UserService) GetUsersWithOrderStats(
 func (s *UserService) EnhanceExistingQuery(ctx context.Context, userId int64, filters UserSearchFilters) (User, error) {
 	// Start with base sqlc query
 	baseQuery := `SELECT id, name, email, status, country, created_at FROM users WHERE id = $1`
-	
+
 	// Add dynamic conditions
 	where := s.buildUserFilters(filters)
-	
+
 	// Inject conditions into existing query
 	finalQuery, params := InjectWhereCondition(baseQuery, where, Postgres)
-	
+
 	// Prepend the original parameter
 	allParams := append([]interface{}{userId}, params...)
-	
+
 	row := s.enhanced.DB().QueryRow(ctx, finalQuery, allParams...)
-	
+
 	var user User
 	err := row.Scan(&user.ID, &user.Name, &user.Email, &user.Status, &user.Country, &user.CreatedAt)
 	return user, err
