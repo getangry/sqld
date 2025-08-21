@@ -39,6 +39,11 @@ func (eq *EnhancedQueries[T]) DynamicQuery(
 	whereConditions *WhereBuilder,
 	scanFn func(rows Rows) error,
 ) error {
+	// Validate the base query
+	if err := ValidateQuery(baseQuery, eq.dialect); err != nil {
+		return WrapQueryError(err, baseQuery, nil, "dynamic query validation")
+	}
+
 	qb := NewQueryBuilder(baseQuery, eq.dialect)
 	if whereConditions != nil {
 		qb.Where(whereConditions)
@@ -47,11 +52,19 @@ func (eq *EnhancedQueries[T]) DynamicQuery(
 	query, params := qb.Build()
 	rows, err := eq.db.Query(ctx, query, params...)
 	if err != nil {
-		return err
+		return WrapQueryError(err, query, params, "dynamic query execution")
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			// Log the close error but don't override the main error
+		}
+	}()
 
-	return scanFn(rows)
+	if err := scanFn(rows); err != nil {
+		return WrapQueryError(err, query, params, "dynamic query scanning")
+	}
+
+	return nil
 }
 
 // DynamicQueryRow executes a dynamic query that returns a single row
@@ -60,6 +73,11 @@ func (eq *EnhancedQueries[T]) DynamicQueryRow(
 	baseQuery string,
 	whereConditions *WhereBuilder,
 ) Row {
+	// Validate the base query
+	if err := ValidateQuery(baseQuery, eq.dialect); err != nil {
+		return &ErrorRow{err: WrapQueryError(err, baseQuery, nil, "dynamic query row validation")}
+	}
+
 	qb := NewQueryBuilder(baseQuery, eq.dialect)
 	if whereConditions != nil {
 		qb.Where(whereConditions)
@@ -100,11 +118,40 @@ func (eq *EnhancedQueries[T]) SearchQuery(
 
 // PaginationQuery adds LIMIT/OFFSET to a query
 func (eq *EnhancedQueries[T]) PaginationQuery(
+	ctx context.Context,
 	baseQuery string,
 	whereConditions *WhereBuilder,
 	limit, offset int,
 	orderBy string,
-) (string, []interface{}) {
+) (string, []interface{}, error) {
+	// Validate the base query
+	if err := ValidateQuery(baseQuery, eq.dialect); err != nil {
+		return "", nil, WrapQueryError(err, baseQuery, nil, "pagination query validation")
+	}
+
+	// Validate ORDER BY clause if provided
+	if orderBy != "" {
+		if err := ValidateOrderBy(orderBy); err != nil {
+			return "", nil, WrapQueryError(err, orderBy, nil, "order by validation")
+		}
+	}
+
+	// Validate pagination parameters
+	if limit < 0 {
+		return "", nil, &ValidationError{
+			Field:   "limit",
+			Value:   limit,
+			Message: "limit cannot be negative",
+		}
+	}
+	if offset < 0 {
+		return "", nil, &ValidationError{
+			Field:   "offset",
+			Value:   offset,
+			Message: "offset cannot be negative",
+		}
+	}
+
 	qb := NewQueryBuilder(baseQuery, eq.dialect)
 	if whereConditions != nil {
 		qb.Where(whereConditions)
@@ -137,7 +184,7 @@ func (eq *EnhancedQueries[T]) PaginationQuery(
 		}
 	}
 
-	return query, params
+	return query, params, nil
 }
 
 // Common scanning helpers
