@@ -309,10 +309,10 @@ func SetupRoutes(userService *UserService) *gin.Engine {
 	// User routes
 	users := r.Group("/users")
 	{
-		users.GET("", userService.SearchUsers)           // GET /users?name=john&age[gt]=18&status[in]=active,verified
+		users.GET("", userService.SearchUsers)                    // GET /users?name=john&age[gt]=18&status[in]=active,verified
 		users.GET("/:identifier", userService.GetUserByIDOrEmail) // GET /users/123 or GET /users/john@example.com
-		users.POST("", userService.CreateUserFromRequest)        // POST /users
-		users.PATCH("/:id", userService.UpdateUserWithFilters)   // PATCH /users/123
+		users.POST("", userService.CreateUserFromRequest)         // POST /users
+		users.PATCH("/:id", userService.UpdateUserWithFilters)    // PATCH /users/123
 	}
 
 	return r
