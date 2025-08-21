@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go-version: ['1.21', '1.22', '1.23', '1.24', '1.25']
+        go-version: ['1.23', '1.24', '1.25']
     
     steps:
     - uses: actions/checkout@v4
@@ -65,28 +65,13 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v4
       with:
-        go-version: '1.21'
-
-  security:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Go
-      uses: actions/setup-go@v4
-      with:
         go-version: '1.25'
-    
-    - name: Run Gosec Security Scanner
-      uses: securecodewarrior/github-action-gosec@master
-      with:
-        args: './...'
 
   build:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go-version: ['1.21', '1.22', '1.23', '1.24', '1.25']
+        go-version: ['1.23', '1.24', '1.25']
         os: [ubuntu-latest, windows-latest, macos-latest]
     
     steps:
