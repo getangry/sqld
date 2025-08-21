@@ -42,14 +42,14 @@ func (eq *EnhancedQueries[T]) DynamicQuery(
 	if whereConditions != nil {
 		qb.Where(whereConditions)
 	}
-	
+
 	query, params := qb.Build()
 	rows, err := eq.db.Query(ctx, query, params...)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
-	
+
 	return scanFn(rows)
 }
 
@@ -63,7 +63,7 @@ func (eq *EnhancedQueries[T]) DynamicQueryRow(
 	if whereConditions != nil {
 		qb.Where(whereConditions)
 	}
-	
+
 	query, params := qb.Build()
 	return eq.db.QueryRow(ctx, query, params...)
 }
@@ -78,7 +78,7 @@ func (eq *EnhancedQueries[T]) SearchQuery(
 	filters *WhereBuilder,
 ) *WhereBuilder {
 	where := NewWhereBuilder(eq.dialect)
-	
+
 	// Add text search across multiple columns
 	if searchText != "" && len(searchColumns) > 0 {
 		where.Or(func(or ConditionBuilder) {
@@ -87,13 +87,13 @@ func (eq *EnhancedQueries[T]) SearchQuery(
 			}
 		})
 	}
-	
+
 	// Combine with additional filters
 	if filters != nil && filters.HasConditions() {
 		filterSQL, filterParams := filters.Build()
 		where.Raw(filterSQL, filterParams...)
 	}
-	
+
 	return where
 }
 
@@ -108,14 +108,14 @@ func (eq *EnhancedQueries[T]) PaginationQuery(
 	if whereConditions != nil {
 		qb.Where(whereConditions)
 	}
-	
+
 	query, params := qb.Build()
-	
+
 	// Add ORDER BY
 	if orderBy != "" {
 		query += " ORDER BY " + orderBy
 	}
-	
+
 	// Add pagination
 	if limit > 0 {
 		switch eq.dialect {
@@ -135,7 +135,7 @@ func (eq *EnhancedQueries[T]) PaginationQuery(
 			}
 		}
 	}
-	
+
 	return query, params
 }
 
@@ -144,7 +144,7 @@ func (eq *EnhancedQueries[T]) PaginationQuery(
 // ScanToSlice scans query results into a slice using a provided scan function
 func ScanToSlice[R any](rows Rows, scanFn func(rows Rows) (R, error)) ([]R, error) {
 	var results []R
-	
+
 	for rows.Next() {
 		item, err := scanFn(rows)
 		if err != nil {
@@ -152,11 +152,11 @@ func ScanToSlice[R any](rows Rows, scanFn func(rows Rows) (R, error)) ([]R, erro
 		}
 		results = append(results, item)
 	}
-	
+
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	
+
 	return results, nil
 }
 
@@ -167,25 +167,25 @@ func ScanToMap[K comparable, V any](
 	valueFn func(rows Rows) (V, error),
 ) (map[K]V, error) {
 	results := make(map[K]V)
-	
+
 	for rows.Next() {
 		key, err := keyFn(rows)
 		if err != nil {
 			return nil, err
 		}
-		
+
 		value, err := valueFn(rows)
 		if err != nil {
 			return nil, err
 		}
-		
+
 		results[key] = value
 	}
-	
+
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	
+
 	return results, nil
 }
 
@@ -221,13 +221,13 @@ func BuildStatusFilter(
 		}
 		where.In(column, includeValues)
 	}
-	
+
 	if len(exclude) > 0 {
 		for _, status := range exclude {
 			where.NotEqual(column, status)
 		}
 	}
-	
+
 	return where
 }
 
@@ -241,10 +241,10 @@ func BuildFullTextSearch(
 	if searchText == "" || len(columns) == 0 {
 		return where
 	}
-	
+
 	// Normalize search text
 	searchPattern := SearchPattern(strings.TrimSpace(searchText), "contains")
-	
+
 	where.Or(func(or ConditionBuilder) {
 		for _, column := range columns {
 			if dialect == Postgres {
@@ -255,7 +255,7 @@ func BuildFullTextSearch(
 			}
 		}
 	})
-	
+
 	return where
 }
 
@@ -270,12 +270,12 @@ func InjectWhereCondition(
 	if conditions == nil || !conditions.HasConditions() {
 		return originalQuery, nil
 	}
-	
+
 	whereSQL, params := conditions.Build()
-	
+
 	// Find the insertion point
 	upperQuery := strings.ToUpper(originalQuery)
-	
+
 	// Look for existing WHERE clause
 	whereIndex := strings.Index(upperQuery, "WHERE")
 	if whereIndex != -1 {
@@ -286,7 +286,7 @@ func InjectWhereCondition(
 		groupIndex := strings.Index(upperQuery[insertPoint:], "GROUP")
 		havingIndex := strings.Index(upperQuery[insertPoint:], "HAVING")
 		limitIndex := strings.Index(upperQuery[insertPoint:], "LIMIT")
-		
+
 		// Find the earliest of these indices
 		insertAfter := len(originalQuery)
 		for _, idx := range []int{orderIndex, groupIndex, havingIndex, limitIndex} {
@@ -294,11 +294,11 @@ func InjectWhereCondition(
 				insertAfter = idx + insertPoint
 			}
 		}
-		
+
 		// Insert the condition
 		beforePart := strings.TrimSpace(originalQuery[:insertAfter])
 		afterPart := strings.TrimSpace(originalQuery[insertAfter:])
-		
+
 		if afterPart == "" {
 			newQuery := beforePart + " AND " + whereSQL
 			return newQuery, params
@@ -306,7 +306,7 @@ func InjectWhereCondition(
 		newQuery := beforePart + " AND " + whereSQL + " " + afterPart
 		return newQuery, params
 	}
-	
+
 	// No existing WHERE clause, add one
 	// Find insertion point before ORDER BY, GROUP BY, etc.
 	insertPoint := len(originalQuery)
@@ -315,10 +315,10 @@ func InjectWhereCondition(
 			insertPoint = idx
 		}
 	}
-	
+
 	beforePart := strings.TrimSpace(originalQuery[:insertPoint])
 	afterPart := strings.TrimSpace(originalQuery[insertPoint:])
-	
+
 	if afterPart == "" {
 		// No keywords after
 		newQuery := beforePart + " WHERE " + whereSQL

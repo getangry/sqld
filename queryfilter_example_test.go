@@ -56,9 +56,9 @@ func Example_userAPI() {
 				"country":    true,
 			},
 			FieldMappings: map[string]string{
-				"user_name": "name",        // Map user_name -> name
-				"user_age":  "age",         // Map user_age -> age
-				"signup":    "created_at",  // Map signup -> created_at
+				"user_name": "name",       // Map user_name -> name
+				"user_age":  "age",        // Map user_age -> age
+				"signup":    "created_at", // Map signup -> created_at
 			},
 			DefaultOperator: sqld.OpEq,
 			DateLayout:      "2006-01-02",
@@ -187,7 +187,7 @@ func Example_serviceIntegration() {
 		// Add WHERE conditions if any exist
 		var query string
 		var params []interface{}
-		
+
 		if where.HasConditions() {
 			query, params = sqld.InjectWhereCondition(baseQuery, where, sqld.Postgres)
 		} else {
@@ -222,7 +222,7 @@ func Example_filterSyntax() {
 	examples := []string{
 		// Bracket syntax
 		"name[eq]=john&age[gt]=18&email[contains]=example",
-		// Underscore syntax  
+		// Underscore syntax
 		"name_eq=john&age_gt=18&email_contains=example",
 		// Mixed syntax
 		"name=john&age[gt]=18&email_contains=example",
@@ -238,7 +238,7 @@ func Example_filterSyntax() {
 	for i, queryString := range examples {
 		fmt.Printf("\n--- Syntax Example %d ---\n", i+1)
 		fmt.Printf("Query: %s\n", queryString)
-		
+
 		where, err := sqld.BuildFromQueryString(queryString, sqld.Postgres, config)
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)

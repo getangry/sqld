@@ -144,7 +144,7 @@ func ParseURLValues(values url.Values, config *QueryFilterConfig) ([]Filter, err
 	}
 
 	var filters []Filter
-	
+
 	for key, vals := range values {
 		if len(filters) >= config.MaxFilters {
 			return nil, fmt.Errorf("too many filters, maximum allowed: %d", config.MaxFilters)
@@ -157,7 +157,7 @@ func ParseURLValues(values url.Values, config *QueryFilterConfig) ([]Filter, err
 
 		// Parse the field and operator from the key
 		field, operator := parseFieldOperator(key, config.DefaultOperator)
-		
+
 		// Map field name if configured
 		if mapped, exists := config.FieldMappings[field]; exists {
 			field = mapped
@@ -188,13 +188,13 @@ func ParseURLValues(values url.Values, config *QueryFilterConfig) ([]Filter, err
 func isValidOperator(op string) bool {
 	validOps := []string{
 		"gt", "gte", "lt", "lte", "ne", "neq", "eq",
-		"sw", "startswith", "ew", "endswith", 
+		"sw", "startswith", "ew", "endswith",
 		"contains", "includes", "notcontains", "doesnotcontain",
 		"notstartswith", "doesnotstartswith", "notendswith", "doesnotendwith",
 		"between", "before", "after", "in", "notin", "notIn",
 		"isnull", "null", "isnotnull", "notnull", "like", "ilike",
 	}
-	
+
 	opLower := strings.ToLower(op)
 	for _, validOp := range validOps {
 		if opLower == validOp {

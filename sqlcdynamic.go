@@ -128,7 +128,7 @@ func (w *WhereBuilder) ILike(column string, value string) ConditionBuilder {
 	if value == "" {
 		return w
 	}
-	
+
 	if w.dialect == Postgres {
 		w.addCondition(column+" ILIKE "+w.placeholder(), value)
 	} else {
@@ -143,19 +143,19 @@ func (w *WhereBuilder) In(column string, values []interface{}) ConditionBuilder 
 	if len(values) == 0 {
 		return w
 	}
-	
+
 	placeholders := make([]string, len(values))
 	for i := range values {
 		placeholders[i] = w.placeholder()
 	}
-	
+
 	sql := column + " IN (" + strings.Join(placeholders, ", ") + ")"
 	w.conditions = append(w.conditions, Condition{
 		SQL:        sql,
 		ParamCount: len(values),
 	})
 	w.params = append(w.params, values...)
-	
+
 	return w
 }
 
@@ -206,14 +206,14 @@ func (w *WhereBuilder) Or(fn func(ConditionBuilder)) ConditionBuilder {
 	subBuilder := NewWhereBuilder(w.dialect)
 	subBuilder.paramIndex = w.paramIndex
 	fn(subBuilder)
-	
+
 	if len(subBuilder.conditions) > 0 {
 		parts := make([]string, len(subBuilder.conditions))
 		for i, cond := range subBuilder.conditions {
 			parts[i] = cond.SQL
 		}
 		orSQL := "(" + strings.Join(parts, " OR ") + ")"
-		
+
 		w.conditions = append(w.conditions, Condition{
 			SQL:        orSQL,
 			ParamCount: len(subBuilder.params),
@@ -221,7 +221,7 @@ func (w *WhereBuilder) Or(fn func(ConditionBuilder)) ConditionBuilder {
 		w.params = append(w.params, subBuilder.params...)
 		w.paramIndex = subBuilder.paramIndex
 	}
-	
+
 	return w
 }
 
@@ -230,12 +230,12 @@ func (w *WhereBuilder) Build() (string, []interface{}) {
 	if len(w.conditions) == 0 {
 		return "", nil
 	}
-	
+
 	parts := make([]string, len(w.conditions))
 	for i, cond := range w.conditions {
 		parts[i] = cond.SQL
 	}
-	
+
 	return strings.Join(parts, " AND "), w.params
 }
 
@@ -287,7 +287,7 @@ func (w *WhereBuilder) processRawSQL(sql string, paramCount int) string {
 		}
 		return result
 	}
-	
+
 	// For MySQL/SQLite, just update the counter
 	w.paramIndex += paramCount
 	return sql
@@ -318,7 +318,7 @@ func (qb *QueryBuilder) Where(conditions *WhereBuilder) *QueryBuilder {
 func (qb *QueryBuilder) Build() (string, []interface{}) {
 	query := qb.baseQuery
 	var params []interface{}
-	
+
 	if qb.where != nil && qb.where.HasConditions() {
 		whereSQL, whereParams := qb.where.Build()
 		if whereSQL != "" {
@@ -330,7 +330,7 @@ func (qb *QueryBuilder) Build() (string, []interface{}) {
 			params = append(params, whereParams...)
 		}
 	}
-	
+
 	return query, params
 }
 
@@ -349,17 +349,17 @@ func (pa *ParameterAdjuster) AdjustSQL(sql string, startIndex int) string {
 	if pa.dialect != Postgres {
 		return sql // MySQL/SQLite use ?, no adjustment needed
 	}
-	
+
 	// For PostgreSQL, renumber $1, $2, etc.
 	result := sql
 	placeholderCount := strings.Count(sql, "$")
-	
+
 	for i := 1; i <= placeholderCount; i++ {
 		oldPlaceholder := "$" + strconv.Itoa(i)
 		newPlaceholder := "$" + strconv.Itoa(i+startIndex)
 		result = strings.Replace(result, oldPlaceholder, newPlaceholder, 1)
 	}
-	
+
 	return result
 }
 
@@ -368,22 +368,22 @@ func (pa *ParameterAdjuster) AdjustSQL(sql string, startIndex int) string {
 // CombineConditions combines multiple condition builders with AND logic
 func CombineConditions(dialect Dialect, builders ...*WhereBuilder) *WhereBuilder {
 	combined := NewWhereBuilder(dialect)
-	
+
 	for _, builder := range builders {
 		if builder != nil && builder.HasConditions() {
 			sql, params := builder.Build()
-			
+
 			// Adjust parameter placeholders if needed
 			if dialect == Postgres {
 				adjustedSQL := sql
 				// Replace $1, $2, etc. with proper indices based on current parameter count
 				for i := 1; i <= len(params); i++ {
 					oldPlaceholder := "$" + strconv.Itoa(i)
-					newPlaceholder := "$" + strconv.Itoa(combined.paramIndex + i)
+					newPlaceholder := "$" + strconv.Itoa(combined.paramIndex+i)
 					adjustedSQL = strings.Replace(adjustedSQL, oldPlaceholder, newPlaceholder, 1)
 				}
 				combined.paramIndex += len(params)
-				
+
 				combined.conditions = append(combined.conditions, Condition{
 					SQL:        adjustedSQL,
 					ParamCount: len(params),
@@ -395,7 +395,7 @@ func CombineConditions(dialect Dialect, builders ...*WhereBuilder) *WhereBuilder
 			}
 		}
 	}
-	
+
 	return combined
 }
 
@@ -423,7 +423,7 @@ func ConditionalWhere(builder *WhereBuilder, column string, value interface{}) *
 			builder.Equal(column, v)
 		}
 	}
-	
+
 	return builder
 }
 

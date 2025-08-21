@@ -123,7 +123,7 @@ func TestConvertValue(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := convertValue(tt.value, tt.operator, "2006-01-02")
-			
+
 			if tt.hasError {
 				assert.Error(t, err)
 			} else {
@@ -214,13 +214,13 @@ func TestParseQueryString(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := ParseQueryString(tt.queryString, tt.config)
-			
+
 			if tt.hasError {
 				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
 				assert.Equal(t, len(tt.expected), len(result))
-				
+
 				for i, expected := range tt.expected {
 					assert.Equal(t, expected.Field, result[i].Field)
 					assert.Equal(t, expected.Operator, result[i].Operator)
@@ -237,14 +237,14 @@ func TestParseRequest(t *testing.T) {
 
 	config := DefaultQueryFilterConfig()
 	filters, err := ParseRequest(req, config)
-	
+
 	assert.NoError(t, err)
 	assert.Len(t, filters, 2)
-	
+
 	// Check that we have both filters (order may vary due to map iteration)
 	nameFound := false
 	ageFound := false
-	
+
 	for _, filter := range filters {
 		switch filter.Field {
 		case "name":
@@ -257,7 +257,7 @@ func TestParseRequest(t *testing.T) {
 			ageFound = true
 		}
 	}
-	
+
 	assert.True(t, nameFound, "name filter should be present")
 	assert.True(t, ageFound, "age filter should be present")
 }
@@ -324,9 +324,9 @@ func TestApplyFiltersToBuilder(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			builder := NewWhereBuilder(Postgres)
 			err := ApplyFiltersToBuilder(tt.filters, builder)
-			
+
 			assert.NoError(t, err)
-			
+
 			sql, params := builder.Build()
 			assert.Equal(t, tt.expected, sql)
 			assert.Equal(t, tt.params, params)
@@ -336,14 +336,14 @@ func TestApplyFiltersToBuilder(t *testing.T) {
 
 func TestBuildFromQueryString(t *testing.T) {
 	queryString := "name=john&age[gt]=18&status[in]=active,pending"
-	
+
 	builder, err := BuildFromQueryString(queryString, Postgres, DefaultQueryFilterConfig())
 	require.NoError(t, err)
-	
+
 	sql, params := builder.Build()
-	
+
 	assert.Contains(t, sql, "name = $1")
-	assert.Contains(t, sql, "age > $2") 
+	assert.Contains(t, sql, "age > $2")
 	assert.Contains(t, sql, "status IN ($3, $4)")
 	assert.Equal(t, []interface{}{"john", 18, "active", "pending"}, params)
 }
@@ -357,9 +357,9 @@ func TestBuildFromRequest(t *testing.T) {
 	require.NoError(t, err)
 
 	sql, params := builder.Build()
-	
+
 	assert.Contains(t, sql, "name = $1")
-	assert.Contains(t, sql, "age >= $2") 
+	assert.Contains(t, sql, "age >= $2")
 	assert.Contains(t, sql, "email ILIKE $3")
 	assert.Equal(t, []interface{}{"john", 21, "%example%"}, params)
 }
@@ -409,7 +409,7 @@ func TestQueryFilterConfig(t *testing.T) {
 func TestComplexQueryFiltering(t *testing.T) {
 	// Test a complex real-world scenario
 	queryString := "name[contains]=john&age[between]=18,65&status[in]=active,pending&created_at[after]=2024-01-01&deleted_at[isnull]=true"
-	
+
 	config := &QueryFilterConfig{
 		AllowedFields: map[string]bool{
 			"name":       true,
@@ -427,14 +427,14 @@ func TestComplexQueryFiltering(t *testing.T) {
 	require.NoError(t, err)
 
 	sql, params := builder.Build()
-	
+
 	// Check that all conditions are present
 	assert.Contains(t, sql, "name ILIKE")
 	assert.Contains(t, sql, "age BETWEEN")
 	assert.Contains(t, sql, "status IN")
 	assert.Contains(t, sql, "created_at >")
 	assert.Contains(t, sql, "deleted_at IS NULL")
-	
+
 	// Check parameter count and types
 	assert.Len(t, params, 6) // %john%, 18, 65, active, pending, 2024-01-01
 	assert.Equal(t, "%john%", params[0])
