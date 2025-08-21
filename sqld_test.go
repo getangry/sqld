@@ -207,41 +207,6 @@ func TestConditionalWhere(t *testing.T) {
 	assert.Contains(t, sql, "country2 = $3")
 }
 
-func TestInjectWhereCondition(t *testing.T) {
-	tests := []struct {
-		name          string
-		originalQuery string
-		expectedQuery string
-	}{
-		{
-			name:          "query without WHERE",
-			originalQuery: "SELECT * FROM users ORDER BY name",
-			expectedQuery: "SELECT * FROM users WHERE name = $1 ORDER BY name",
-		},
-		{
-			name:          "query with existing WHERE",
-			originalQuery: "SELECT * FROM users WHERE active = true ORDER BY name",
-			expectedQuery: "SELECT * FROM users WHERE active = true AND name = $1 ORDER BY name",
-		},
-		{
-			name:          "simple query without ORDER",
-			originalQuery: "SELECT * FROM users",
-			expectedQuery: "SELECT * FROM users WHERE name = $1",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			where := NewWhereBuilder(Postgres)
-			where.Equal("name", "John")
-
-			query, params := InjectWhereCondition(tt.originalQuery, where, Postgres)
-
-			assert.Equal(t, tt.expectedQuery, query)
-			assert.Equal(t, []interface{}{"John"}, params)
-		})
-	}
-}
 
 func TestCombineConditions(t *testing.T) {
 	where1 := NewWhereBuilder(Postgres)

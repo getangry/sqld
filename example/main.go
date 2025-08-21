@@ -22,7 +22,7 @@ import (
 // UserService demonstrates how to integrate sqld with SQLc-generated code
 // This showcases the best of both worlds:
 // - SQLc provides compile-time safety and optimal performance for static queries
-// - sqld adds dynamic filtering capabilities for complex search scenarios
+// - sqld adds dynamic filtering capabilities with automatic reflection-based scanning
 type UserService struct {
 	enhanced *sqld.EnhancedQueries[*db.Queries]
 	queries  *db.Queries
@@ -39,32 +39,6 @@ func NewUserService(conn *pgx.Conn) *UserService {
 		enhanced: enhanced,
 		queries:  queries,
 	}
-}
-
-// scanUsers is a helper function to scan database rows into User structs
-func (s *UserService) scanUsers(rows sqld.Rows) ([]db.User, error) {
-	var users []db.User
-	for rows.Next() {
-		var user db.User
-		err := rows.Scan(
-			&user.ID,
-			&user.Name,
-			&user.Email,
-			&user.Age,
-			&user.Status,
-			&user.Role,
-			&user.Country,
-			&user.Verified,
-			&user.CreatedAt,
-			&user.UpdatedAt,
-			&user.DeletedAt,
-		)
-		if err != nil {
-			return nil, err
-		}
-		users = append(users, user)
-	}
-	return users, rows.Err()
 }
 
 // respondWithPaginatedUsers handles the pagination logic and response
@@ -132,33 +106,13 @@ type SearchUsersResponse struct {
 	Limit      int       `json:"limit"`
 }
 
-// SearchUsers demonstrates the SQLc + sqld annotation system
+// SearchUsers demonstrates the SQLc + sqld annotation system with automatic scanning
 //
-// How it works:
-// 1. SQLc queries are written with special annotations:
-//   - /* sqld:where */ - Replaced with dynamic WHERE conditions
-//   - /* sqld:cursor */ - Replaced with cursor pagination logic
-//   - /* sqld:limit */ - Replaced with LIMIT clause
-//   - -- sqld:filter-enabled - Enables dynamic filtering
-//   - -- sqld:cursor-enabled - Enables cursor pagination
-//
-// 2. At runtime, sqld.BuildSearchQuery() processes these annotations:
-//   - Parses the SQLc-generated query string
-//   - Replaces annotations with actual SQL fragments
-//   - Adjusts parameter placeholders automatically
-//   - Preserves SQLc's type safety and compile-time verification
-//
-// 3. This gives us the best of both worlds:
-//   - SQLc: Compile-time safety, generated types, IDE support
-//   - sqld: Runtime flexibility, dynamic filtering, cursor pagination
-//
-// Example SQLc query:
-//
-//	SELECT * FROM users WHERE deleted_at IS NULL /* sqld:where */ /* sqld:cursor */ /* sqld:limit */
-//
-// Becomes at runtime:
-//
-//	SELECT * FROM users WHERE deleted_at IS NULL AND name ILIKE $1 AND (created_at < $2 OR ...) LIMIT $3
+// Key improvements:
+// 1. No manual scanning code - uses reflection automatically
+// 2. SQLc queries with annotations for dynamic enhancement
+// 3. One-liner execution with QueryAndScanAllReflection
+// 4. Maintains all SQLc type safety and compile-time verification
 func (s *UserService) SearchUsers(c *gin.Context) {
 	ctx := c.Request.Context()
 
@@ -192,31 +146,19 @@ func (s *UserService) SearchUsers(c *gin.Context) {
 	hasFilters := len(queryParams) > 0
 
 	if !hasFilters {
-		// No filters - use SQLc SearchUsers query with annotations
-		query, params, err := sqld.SearchQuery(
-			db.SearchUsers, // Use the SQLc-generated query string
+		// No filters - use SQLc SearchUsers with automatic scanning
+		users, err := sqld.QueryAndScanAllReflection[db.User](
+			ctx,
+			s.enhanced.DB(),
+			db.SearchUsers,
 			sqld.Postgres,
-			nil, // No additional filters
-			cursor,
-			nil,     // No custom ordering (use query's default ORDER BY)
+			nil,     // No additional filters
+			cursor,  // Cursor for pagination
+			nil,     // No custom ordering
 			limit+1, // +1 to check for more results
 		)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to build query: " + err.Error()})
-			return
-		}
-
-		// Execute the annotated query
-		rows, err := s.enhanced.DB().Query(ctx, query, params...)
-		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to execute query: " + err.Error()})
-			return
-		}
-		defer rows.Close()
-
-		users, err := s.scanUsers(rows)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan users: " + err.Error()})
 			return
 		}
 
@@ -224,46 +166,9 @@ func (s *UserService) SearchUsers(c *gin.Context) {
 		return
 	}
 
-	// Check for simple status filter - use SQLc SearchUsersByStatus with annotations
-	if status := c.Query("status"); status != "" && len(queryParams) == 1 {
-		// Single status filter - use the optimized SQLc annotated query
-		statusParam := pgtype.Text{String: status, Valid: true}
-
-		query, params, err := sqld.SearchQuery(
-			db.SearchUsersByStatus, // Use the SQLc-generated query string
-			sqld.Postgres,
-			nil, // No additional filters
-			cursor,
-			nil,         // No custom ordering (use query's default ORDER BY)
-			limit+1,     // +1 to check for more results
-			statusParam, // Original SQLc parameter
-		)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to build query: " + err.Error()})
-			return
-		}
-
-		// Execute the annotated query
-		rows, err := s.enhanced.DB().Query(ctx, query, params...)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to execute query: " + err.Error()})
-			return
-		}
-		defer rows.Close()
-
-		users, err := s.scanUsers(rows)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan users: " + err.Error()})
-			return
-		}
-
-		s.respondWithPaginatedUsers(c, users, limit)
-		return
-	}
-
-	// Complex filters - use SQLc SearchUsers query with annotations and dynamic filters
-	config := &sqld.QueryFilterConfig{
-		AllowedFields: map[string]bool{
+	// Complex filters and sorting - unified configuration
+	config := sqld.DefaultConfig().
+		WithAllowedFields(map[string]bool{
 			"id":         true,
 			"name":       true,
 			"email":      true,
@@ -273,59 +178,54 @@ func (s *UserService) SearchUsers(c *gin.Context) {
 			"country":    true,
 			"verified":   true,
 			"created_at": true,
-		},
-		FieldMappings: map[string]string{
+			"updated_at": true,
+		}).
+		WithFieldMappings(map[string]string{
 			"user_name":    "name",
 			"user_email":   "email",
 			"signup_date":  "created_at",
+			"signup":       "created_at",
+			"last_update":  "updated_at",
 			"is_verified":  "verified",
 			"user_status":  "status",
 			"user_country": "country",
-		},
-		DefaultOperator: sqld.OpEq,
-		DateLayout:      "2006-01-02",
-		MaxFilters:      20,
-	}
+		}).
+		WithDefaultOperator(sqld.OpEq).
+		WithDateLayout("2006-01-02").
+		WithMaxFilters(20).
+		WithMaxSortFields(3).
+		WithDefaultSort([]sqld.SortField{
+			{Field: "created_at", Direction: sqld.SortDesc},
+			{Field: "id", Direction: sqld.SortAsc},
+		})
 
-	// Parse filters from query parameters
-	where, err := sqld.FromRequest(c.Request, sqld.Postgres, config)
+	// Parse filters and sorting from query parameters
+	where, orderBy, err := sqld.FromRequestWithSort(c.Request, sqld.Postgres, config)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid filters: " + err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid filters or sorting: " + err.Error()})
 		return
 	}
 
-	// Use SQLc SearchUsers query with annotations and dynamic filtering
-	query, params, err := sqld.SearchQuery(
-		db.SearchUsers, // Use the SQLc-generated query string with annotations
+	// Execute with dynamic filters and sorting using automatic reflection-based scanning
+	users, err := sqld.QueryAndScanAllReflection[db.User](
+		ctx,
+		s.enhanced.DB(),
+		db.SearchUsers,
 		sqld.Postgres,
-		where, // Dynamic filters
-		cursor,
-		nil,     // No custom ordering (use query's default ORDER BY)
+		where,   // Dynamic filters from query parameters
+		cursor,  // Cursor for pagination
+		orderBy, // Dynamic sorting from query parameters
 		limit+1, // +1 to check for more results
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to build query: " + err.Error()})
-		return
-	}
-
-	// Execute the annotated query
-	rows, err := s.enhanced.DB().Query(ctx, query, params...)
-	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to execute query: " + err.Error()})
-		return
-	}
-	defer rows.Close()
-
-	users, err := s.scanUsers(rows)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to scan users: " + err.Error()})
 		return
 	}
 
 	s.respondWithPaginatedUsers(c, users, limit)
 }
 
-// GetUserByIDOrEmail demonstrates mixing dynamic and static queries
+// GetUserByIDOrEmail demonstrates mixing static SQLc queries with dynamic ones
 func (s *UserService) GetUserByIDOrEmail(c *gin.Context) {
 	ctx := c.Request.Context()
 	identifier := c.Param("identifier")
@@ -354,8 +254,7 @@ func (s *UserService) GetUserByIDOrEmail(c *gin.Context) {
 	c.JSON(http.StatusOK, user)
 }
 
-// UpdateUserWithFilters demonstrates using SQLc's type-safe UpdateUser with validation
-// This shows how to combine SQLc's compile-time safety with runtime validation
+// UpdateUserWithFilters demonstrates using SQLc's type-safe UpdateUser
 func (s *UserService) UpdateUserWithFilters(c *gin.Context) {
 	ctx := c.Request.Context()
 	userID, err := strconv.Atoi(c.Param("id"))
@@ -505,6 +404,77 @@ func (s *UserService) CreateUserFromRequest(c *gin.Context) {
 	c.JSON(http.StatusCreated, user)
 }
 
+// SearchUsersSorted demonstrates dedicated sorting with different syntax options
+func (s *UserService) SearchUsersSorted(c *gin.Context) {
+	ctx := c.Request.Context()
+
+	// Parse limit
+	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	if limit < 1 || limit > 100 {
+		limit = 20
+	}
+
+	// Configuration for sorting-focused endpoint
+	config := sqld.DefaultConfig().
+		WithAllowedFields(map[string]bool{
+			"id":         true,
+			"name":       true,
+			"email":      true,
+			"age":        true,
+			"status":     true,
+			"role":       true,
+			"country":    true,
+			"verified":   true,
+			"created_at": true,
+			"updated_at": true,
+		}).
+		WithFieldMappings(map[string]string{
+			"signup":      "created_at",
+			"last_update": "updated_at",
+			"user_name":   "name",
+		}).
+		WithMaxSortFields(3).
+		WithDefaultSort([]sqld.SortField{
+			{Field: "name", Direction: sqld.SortAsc}, // Default: sort by name ascending
+		})
+
+	// Parse sorting from multiple possible parameter formats
+	orderBy, err := sqld.ParseSortFromRequest(c.Request, config)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid sorting: " + err.Error()})
+		return
+	}
+
+	// Execute with sorting only (no filters)
+	users, err := sqld.QueryAndScanAllReflection[db.User](
+		ctx,
+		s.enhanced.DB(),
+		db.SearchUsers,
+		sqld.Postgres,
+		nil,     // No filters
+		nil,     // No cursor
+		orderBy, // Dynamic sorting
+		limit,   // Limit results
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to execute query: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"users": users,
+		"count": len(users),
+		"limit": limit,
+		"sorting_examples": gin.H{
+			"colon_syntax":      "?sort=name:desc,age:asc",
+			"prefix_syntax":     "?sort=-name,+age",
+			"mixed_syntax":      "?sort=name:desc,+age",
+			"individual_params": "?sort_name=desc&sort_age=asc",
+			"field_mappings":    "?sort=user_name:desc,signup:asc",
+		},
+	})
+}
+
 // SetupRoutes configures the HTTP routes
 func SetupRoutes(userService *UserService) *gin.Engine {
 	r := gin.Default()
@@ -512,7 +482,8 @@ func SetupRoutes(userService *UserService) *gin.Engine {
 	// User routes
 	users := r.Group("/users")
 	{
-		users.GET("", userService.SearchUsers)                    // GET /users?name=john&age[gt]=18&status[in]=active,verified
+		users.GET("", userService.SearchUsers)                    // GET /users?name=john&age[gt]=18&status[in]=active,verified&sort=name:desc
+		users.GET("/sorted", userService.SearchUsersSorted)       // GET /users/sorted?sort=name:desc,age:asc (sorting examples)
 		users.GET("/:identifier", userService.GetUserByIDOrEmail) // GET /users/123 or GET /users/john@example.com
 		users.POST("", userService.CreateUserFromRequest)         // POST /users
 		users.PATCH("/:id", userService.UpdateUserWithFilters)    // PATCH /users/123
@@ -542,12 +513,30 @@ func main() {
 
 	// Example usage URLs:
 	fmt.Println("Server starting on :8080")
-	fmt.Println("Example URLs:")
+	fmt.Println()
+	fmt.Println("=== FILTERING EXAMPLES ===")
 	fmt.Println("  GET /users - List all users")
 	fmt.Println("  GET /users?name[contains]=john - Search users by name containing 'john'")
 	fmt.Println("  GET /users?age[gte]=18&status=active - Search active users 18 or older")
 	fmt.Println("  GET /users?role[in]=admin,manager&country=US - Search US admins/managers")
 	fmt.Println("  GET /users?created_at[after]=2024-01-01&verified=true - Search verified users since 2024")
+	fmt.Println()
+	fmt.Println("=== SORTING EXAMPLES ===")
+	fmt.Println("  GET /users?sort=name:desc - Sort by name descending")
+	fmt.Println("  GET /users?sort=name:desc,age:asc - Sort by name desc, then age asc")
+	fmt.Println("  GET /users?sort=-name,+age - Prefix syntax: - for desc, + for asc")
+	fmt.Println("  GET /users?sort_name=desc&sort_age=asc - Individual sort parameters")
+	fmt.Println("  GET /users?sort=user_name:desc,signup:asc - Field mappings (user_name->name, signup->created_at)")
+	fmt.Println()
+	fmt.Println("=== COMBINED FILTERING + SORTING ===")
+	fmt.Println("  GET /users?status=active&sort=name:desc - Filter active users, sort by name")
+	fmt.Println("  GET /users?age[gte]=18&country=US&sort=-created_at,+name - Complex filter + sort")
+	fmt.Println()
+	fmt.Println("=== SORTING-FOCUSED ENDPOINT ===")
+	fmt.Println("  GET /users/sorted - Dedicated sorting endpoint with examples in response")
+	fmt.Println("  GET /users/sorted?sort=name:desc,age:asc - Try different sorting combinations")
+	fmt.Println()
+	fmt.Println("=== OTHER ENDPOINTS ===")
 	fmt.Println("  GET /users/123 - Get user by ID")
 	fmt.Println("  GET /users/john@example.com - Get user by email")
 	fmt.Println("  POST /users - Create new user")

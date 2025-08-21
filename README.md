@@ -47,6 +47,7 @@ sqld is a powerful, type-safe dynamic query builder designed to work seamlessly 
 - 🧩 **Composable** - Build complex queries by combining simple conditions
 - 🔄 **Transaction support** - Full transaction management with automatic rollback and commit
 - ❌ **Structured error handling** - Comprehensive error types with context and unwrapping support
+- 🔮 **Automatic scanning** - Zero-code result scanning with reflection and generics
 - 🧪 **Thoroughly tested** - 95+ test cases covering all functionality with benchmarks
 
 ## Installation
@@ -84,13 +85,13 @@ import (
 func SearchUsers(w http.ResponseWriter, r *http.Request) {
     ctx := r.Context()
     
-    // Configure allowed query parameters
-    config := &sqld.QueryFilterConfig{
-        AllowedFields: map[string]bool{
+    // Configure allowed query parameters for filtering and sorting
+    config := sqld.DefaultConfig().
+        WithAllowedFields(map[string]bool{
             "name": true, "email": true, "status": true, "age": true,
-        },
-        MaxFilters: 10,
-    }
+        }).
+        WithMaxFilters(10).
+        WithMaxSortFields(3)
     
     // Parse filters from URL: /users?name[contains]=john&age[gte]=18&status=active
     where, err := sqld.FromRequest(r, sqld.Postgres, config)
@@ -100,9 +101,8 @@ func SearchUsers(w http.ResponseWriter, r *http.Request) {
     }
     
     // Parse sorting: /users?sort=name:desc,created_at:asc
-    orderBy, _ := sqld.ParseSortFromRequest(r, &sqld.OrderByConfig{
-        AllowedFields: map[string]bool{"name": true, "created_at": true},
-    })
+    // Uses same config as filtering - unified configuration!
+    orderBy, _ := sqld.ParseSortFromRequest(r, config)
     
     // Use SQLc query with annotations
     finalSQL, params, err := sqld.SearchQuery(
@@ -119,26 +119,21 @@ func SearchUsers(w http.ResponseWriter, r *http.Request) {
         return
     }
     
-    // Execute with your database connection
-    rows, err := conn.Query(ctx, finalSQL, params...)
+    // Execute with automatic reflection-based scanning - no manual scan code needed!
+    users, err := sqld.QueryAndScanAllReflection[db.User](
+        ctx,
+        conn,
+        db.SearchUsers,  // SQLc query constant
+        sqld.Postgres,
+        where,           // Dynamic filters
+        nil,             // Cursor
+        orderBy,         // Dynamic sorting
+        20,              // Limit
+    )
     if err != nil {
         log.Printf("Query failed: %v", err)
         http.Error(w, "Internal error", http.StatusInternalServerError)
         return
-    }
-    defer rows.Close()
-    
-    // Scan into SQLc-generated types
-    var users []db.User
-    for rows.Next() {
-        var u db.User
-        err := rows.Scan(&u.ID, &u.Name, &u.Email, &u.Age, &u.Status, 
-                        &u.Role, &u.Country, &u.Verified, &u.CreatedAt)
-        if err != nil {
-            log.Printf("Scan failed: %v", err)
-            continue
-        }
-        users = append(users, u)
     }
     
     // Return as JSON
@@ -213,9 +208,9 @@ finalSQL, params, err := sqld.SearchQuery(
     20,              // Limit
 )
 
-// Execute the enhanced query
-rows, err := conn.Query(ctx, finalSQL, params...)
-// Scan into your SQLc-generated structs
+// Execute with automatic reflection-based scanning
+users, err := sqld.QueryAndScanAllReflection[db.User](ctx, conn, db.SearchUsers, 
+    sqld.Postgres, where, nil, nil, 20)
 ```
 
 #### 2. HTTP API Integration
@@ -224,17 +219,17 @@ Perfect for REST APIs with dynamic filtering:
 
 ```go
 func SearchUsers(w http.ResponseWriter, r *http.Request) {
-    // Configure allowed query parameters
-    config := &sqld.QueryFilterConfig{
-        AllowedFields: map[string]bool{
+    // Unified configuration for filtering and sorting
+    config := sqld.DefaultConfig().
+        WithAllowedFields(map[string]bool{
             "name": true, "email": true, "status": true, "age": true,
-        },
-        FieldMappings: map[string]string{
+        }).
+        WithFieldMappings(map[string]string{
             "user_name": "name", // Map API field names to DB columns
-        },
-        DefaultOperator: sqld.OpEq,
-        MaxFilters: 10,
-    }
+        }).
+        WithDefaultOperator(sqld.OpEq).
+        WithMaxFilters(10).
+        WithMaxSortFields(3)
 
     // Parse filters from URL: /users?name[contains]=john&age[gte]=18&status=active
     where, err := sqld.FromRequest(r, sqld.Postgres, config)
@@ -243,12 +238,12 @@ func SearchUsers(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    // Parse sorting from URL: /users?sort=name:desc,created_at:asc
-    orderBy, _ := sqld.ParseSortFromRequest(r, &sqld.OrderByConfig{
-        AllowedFields: map[string]bool{
-            "name": true, "created_at": true, "updated_at": true,
-        },
-    })
+    // Parse filters and sorting together - same config!
+    where, orderBy, err := sqld.FromRequestWithSort(r, sqld.Postgres, config)
+    if err != nil {
+        http.Error(w, "Invalid parameters", http.StatusBadRequest)
+        return
+    }
 
     // Use your SQLc query with annotations
     finalSQL, params, err := sqld.SearchQuery(
@@ -568,24 +563,17 @@ func (s *UserService) SearchUsers(ctx context.Context, filters UserFilters) ([]d
         return nil, err
     }
     
-    // Execute and scan into SQLc types
-    rows, err := s.conn.Query(ctx, finalSQL, params...)
-    if err != nil {
-        return nil, err
-    }
-    defer rows.Close()
-    
-    var users []db.User
-    for rows.Next() {
-        var u db.User
-        err := rows.Scan(&u.ID, &u.Name, &u.Email, &u.Status, &u.CreatedAt)
-        if err != nil {
-            return nil, err
-        }
-        users = append(users, u)
-    }
-    
-    return users, rows.Err()
+    // Execute with automatic reflection-based scanning
+    return sqld.QueryAndScanAllReflection[db.User](
+        ctx,
+        s.conn,
+        db.SearchUsers,  // SQLc query constant
+        sqld.Postgres,
+        where,           // Dynamic filters
+        nil,             // Cursor
+        nil,             // OrderBy
+        20,              // Limit
+    )
 }
 ```
 

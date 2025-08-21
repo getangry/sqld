@@ -44,33 +44,6 @@ type Filter struct {
 	Value    interface{} `json:"value"`
 }
 
-// QueryFilterConfig configures how query parameters are parsed
-type QueryFilterConfig struct {
-	// AllowedFields restricts which fields can be filtered
-	AllowedFields map[string]bool
-	// FieldMappings maps query parameter names to database column names
-	FieldMappings map[string]string
-	// DefaultOperator is used when no operator is specified
-	DefaultOperator Operator
-	// DateLayout for parsing date strings
-	DateLayout string
-	// MaxFilters limits the number of filters to prevent abuse
-	MaxFilters int
-	// OrderByConfig configures sorting behavior
-	OrderByConfig *OrderByConfig
-}
-
-// DefaultQueryFilterConfig returns a sensible default configuration
-func DefaultQueryFilterConfig() *QueryFilterConfig {
-	return &QueryFilterConfig{
-		AllowedFields:   make(map[string]bool),
-		FieldMappings:   make(map[string]string),
-		DefaultOperator: OpEq,
-		DateLayout:      "2006-01-02",
-		MaxFilters:      50,
-		OrderByConfig:   DefaultOrderByConfig(),
-	}
-}
 
 // MapOperator converts string operators to Operator constants
 func MapOperator(op string) Operator {
@@ -121,9 +94,9 @@ func MapOperator(op string) Operator {
 }
 
 // ParseQueryString parses URL query parameters into Filter objects
-func ParseQueryString(queryString string, config *QueryFilterConfig) ([]Filter, error) {
+func ParseQueryString(queryString string, config *Config) ([]Filter, error) {
 	if config == nil {
-		config = DefaultQueryFilterConfig()
+		config = DefaultConfig()
 	}
 
 	// Parse manually to preserve order of parameters
@@ -192,15 +165,14 @@ func ParseQueryString(queryString string, config *QueryFilterConfig) ([]Filter, 
 }
 
 // ParseRequest parses filters from an HTTP request
-func ParseRequest(r *http.Request, config *QueryFilterConfig) ([]Filter, error) {
-	// Use the raw query string to preserve parameter order
+func ParseRequest(r *http.Request, config *Config) ([]Filter, error) {
 	return ParseQueryString(r.URL.RawQuery, config)
 }
 
 // ParseURLValues parses url.Values into Filter objects
-func ParseURLValues(values url.Values, config *QueryFilterConfig) ([]Filter, error) {
+func ParseURLValues(values url.Values, config *Config) ([]Filter, error) {
 	if config == nil {
-		config = DefaultQueryFilterConfig()
+		config = DefaultConfig()
 	}
 
 	var filters []Filter
@@ -481,7 +453,7 @@ func applyFilter(filter Filter, builder *WhereBuilder) error {
 }
 
 // FromRequest creates a WhereBuilder from HTTP request
-func FromRequest(r *http.Request, dialect Dialect, config *QueryFilterConfig) (*WhereBuilder, error) {
+func FromRequest(r *http.Request, dialect Dialect, config *Config) (*WhereBuilder, error) {
 	filters, err := ParseRequest(r, config)
 	if err != nil {
 		return nil, err
@@ -497,7 +469,7 @@ func FromRequest(r *http.Request, dialect Dialect, config *QueryFilterConfig) (*
 }
 
 // FromQueryString creates a WhereBuilder from query string
-func FromQueryString(queryString string, dialect Dialect, config *QueryFilterConfig) (*WhereBuilder, error) {
+func FromQueryString(queryString string, dialect Dialect, config *Config) (*WhereBuilder, error) {
 	filters, err := ParseQueryString(queryString, config)
 	if err != nil {
 		return nil, err
@@ -513,24 +485,18 @@ func FromQueryString(queryString string, dialect Dialect, config *QueryFilterCon
 }
 
 // ParseSortFromRequest extracts sorting parameters from HTTP request
-func ParseSortFromRequest(r *http.Request, config *QueryFilterConfig) (*OrderByBuilder, error) {
+func ParseSortFromRequest(r *http.Request, config *Config) (*OrderByBuilder, error) {
 	if config == nil {
-		config = DefaultQueryFilterConfig()
-	}
-	if config.OrderByConfig == nil {
-		config.OrderByConfig = DefaultOrderByConfig()
+		config = DefaultConfig()
 	}
 
 	return ParseSortFromValues(r.URL.Query(), config)
 }
 
 // ParseSortFromValues extracts sorting parameters from url.Values
-func ParseSortFromValues(values url.Values, config *QueryFilterConfig) (*OrderByBuilder, error) {
+func ParseSortFromValues(values url.Values, config *Config) (*OrderByBuilder, error) {
 	if config == nil {
-		config = DefaultQueryFilterConfig()
-	}
-	if config.OrderByConfig == nil {
-		config.OrderByConfig = DefaultOrderByConfig()
+		config = DefaultConfig()
 	}
 
 	var sortFields []SortField
@@ -566,12 +532,11 @@ func ParseSortFromValues(values url.Values, config *QueryFilterConfig) (*OrderBy
 		}
 	}
 
-	// Validate and build the order by clause
-	return config.OrderByConfig.ValidateAndBuild(sortFields)
+	return config.ValidateAndBuild(sortFields)
 }
 
 // FromRequestWithSort parses both filters and sorting from HTTP request
-func FromRequestWithSort(r *http.Request, dialect Dialect, config *QueryFilterConfig) (*WhereBuilder, *OrderByBuilder, error) {
+func FromRequestWithSort(r *http.Request, dialect Dialect, config *Config) (*WhereBuilder, *OrderByBuilder, error) {
 	where, err := FromRequest(r, dialect, config)
 	if err != nil {
 		return nil, nil, err

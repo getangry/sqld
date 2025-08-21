@@ -1,6 +1,6 @@
 module github.com/getangry/sqld/example
 
-go 1.23
+go 1.23.0
 
 require (
 	github.com/getangry/sqld v0.1.2

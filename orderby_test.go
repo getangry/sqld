@@ -105,7 +105,7 @@ func TestParseSortFields(t *testing.T) {
 
 func TestOrderByConfig(t *testing.T) {
 	t.Run("Allowed fields validation", func(t *testing.T) {
-		config := &OrderByConfig{
+		config := &Config{
 			AllowedFields: map[string]bool{
 				"name":  true,
 				"email": true,
@@ -128,7 +128,7 @@ func TestOrderByConfig(t *testing.T) {
 	})
 
 	t.Run("Invalid field rejection", func(t *testing.T) {
-		config := &OrderByConfig{
+		config := &Config{
 			AllowedFields: map[string]bool{
 				"name": true,
 			},
@@ -146,7 +146,7 @@ func TestOrderByConfig(t *testing.T) {
 	})
 
 	t.Run("Too many fields", func(t *testing.T) {
-		config := &OrderByConfig{
+		config := &Config{
 			AllowedFields: map[string]bool{
 				"field1": true,
 				"field2": true,
@@ -167,7 +167,7 @@ func TestOrderByConfig(t *testing.T) {
 	})
 
 	t.Run("Field mapping", func(t *testing.T) {
-		config := &OrderByConfig{
+		config := &Config{
 			AllowedFields: map[string]bool{
 				"user_name": true,
 				"signup":    true,
@@ -192,7 +192,7 @@ func TestOrderByConfig(t *testing.T) {
 	})
 
 	t.Run("Default sort", func(t *testing.T) {
-		config := &OrderByConfig{
+		config := &Config{
 			AllowedFields: map[string]bool{
 				"created_at": true,
 				"id":         true,
@@ -219,14 +219,12 @@ func TestParseSortFromValues(t *testing.T) {
 			"sort": []string{"name:desc,email:asc"},
 		}
 
-		config := &QueryFilterConfig{
-			OrderByConfig: &OrderByConfig{
-				AllowedFields: map[string]bool{
-					"name":  true,
-					"email": true,
-				},
-				MaxSortFields: 5,
+		config := &Config{
+			AllowedFields: map[string]bool{
+				"name":  true,
+				"email": true,
 			},
+			MaxSortFields: 5,
 		}
 
 		builder, err := ParseSortFromValues(values, config)
@@ -243,15 +241,13 @@ func TestParseSortFromValues(t *testing.T) {
 			"sort_status": []string{"desc"},
 		}
 
-		config := &QueryFilterConfig{
-			OrderByConfig: &OrderByConfig{
-				AllowedFields: map[string]bool{
-					"name":   true,
-					"email":  true,
-					"status": true,
-				},
-				MaxSortFields: 5,
+		config := &Config{
+			AllowedFields: map[string]bool{
+				"name":   true,
+				"email":  true,
+				"status": true,
 			},
+			MaxSortFields: 5,
 		}
 
 		builder, err := ParseSortFromValues(values, config)
@@ -273,11 +269,9 @@ func TestParseSortFromValues(t *testing.T) {
 					paramName: []string{"name:desc"},
 				}
 
-				config := &QueryFilterConfig{
-					OrderByConfig: &OrderByConfig{
-						AllowedFields: map[string]bool{"name": true},
-						MaxSortFields: 5,
-					},
+				config := &Config{
+					AllowedFields: map[string]bool{"name": true},
+					MaxSortFields: 5,
 				}
 
 				builder, err := ParseSortFromValues(values, config)
@@ -295,20 +289,16 @@ func TestFromRequestWithSort(t *testing.T) {
 		// Create a mock request
 		req, _ := http.NewRequest("GET", "/users?status=active&age[gte]=18&sort=name:desc,email:asc", nil)
 
-		config := &QueryFilterConfig{
+		config := &Config{
 			AllowedFields: map[string]bool{
 				"status": true,
 				"age":    true,
+				"name":   true,
+				"email":  true,
 			},
 			DefaultOperator: OpEq,
-			MaxFilters:      10, // Allow enough filters
-			OrderByConfig: &OrderByConfig{
-				AllowedFields: map[string]bool{
-					"name":  true,
-					"email": true,
-				},
-				MaxSortFields: 5,
-			},
+			MaxFilters:      10,
+			MaxSortFields:   5,
 		}
 
 		where, orderBy, err := FromRequestWithSort(req, Postgres, config)
