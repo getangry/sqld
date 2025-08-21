@@ -10,7 +10,7 @@ import (
 )
 
 // ExampleBuildFromRequest demonstrates parsing HTTP query parameters into SQL conditions
-func ExampleBuildFromRequest() {
+func ExampleFromRequest() {
 	// Simulate an HTTP request with query parameters
 	req := httptest.NewRequest("GET", "/users?name=john&age[gt]=18&status[in]=active,pending", nil)
 
@@ -26,7 +26,7 @@ func ExampleBuildFromRequest() {
 	}
 
 	// Build WHERE conditions from the request
-	where, err := sqld.BuildFromRequest(req, sqld.Postgres, config)
+	where, err := sqld.FromRequest(req, sqld.Postgres, config)
 	if err != nil {
 		panic(err)
 	}
@@ -66,7 +66,7 @@ func Example_userAPI() {
 		}
 
 		// Parse filters from request
-		where, err := sqld.BuildFromRequest(r, sqld.Postgres, config)
+		where, err := sqld.FromRequest(r, sqld.Postgres, config)
 		if err != nil {
 			http.Error(w, "Invalid filters: "+err.Error(), http.StatusBadRequest)
 			return
@@ -133,7 +133,7 @@ func Example_advancedFiltering() {
 		MaxFilters:      20,
 	}
 
-	where, err := sqld.BuildFromQueryString(queryString, sqld.Postgres, config)
+	where, err := sqld.FromQueryString(queryString, sqld.Postgres, config)
 	if err != nil {
 		panic(err)
 	}
@@ -174,7 +174,7 @@ func Example_serviceIntegration() {
 		}
 
 		// Parse filters from request
-		where, err := sqld.BuildFromRequest(r, sqld.Postgres, config)
+		where, err := sqld.FromRequest(r, sqld.Postgres, config)
 		if err != nil {
 			return nil, fmt.Errorf("invalid filters: %w", err)
 		}
@@ -237,7 +237,7 @@ func Example_filterSyntax() {
 		fmt.Printf("\n--- Syntax Example %d ---\n", i+1)
 		fmt.Printf("Query: %s\n", queryString)
 
-		where, err := sqld.BuildFromQueryString(queryString, sqld.Postgres, config)
+		where, err := sqld.FromQueryString(queryString, sqld.Postgres, config)
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
 			continue

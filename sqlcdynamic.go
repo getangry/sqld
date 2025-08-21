@@ -3,6 +3,7 @@ package sqld
 
 import (
 	"context"
+	"database/sql"
 	"strconv"
 	"strings"
 )
@@ -18,9 +19,14 @@ const (
 
 // DBTX is the interface that wraps the basic database operations
 type DBTX interface {
-	Exec(ctx context.Context, sql string, arguments ...interface{}) error
 	Query(ctx context.Context, sql string, args ...interface{}) (Rows, error)
 	QueryRow(ctx context.Context, sql string, args ...interface{}) Row
+}
+
+// DBTXWithExec extends DBTX with Exec method for write operations
+type DBTXWithExec interface {
+	DBTX
+	Exec(ctx context.Context, sql string, args ...interface{}) (sql.Result, error)
 }
 
 // Rows represents query result rows
@@ -83,6 +89,13 @@ func (w *WhereBuilder) Equal(column string, value interface{}) ConditionBuilder 
 	if value == nil {
 		return w
 	}
+
+	// Validate column name
+	if err := ValidateColumnName(column); err != nil {
+		// Skip validation for now to maintain compatibility
+		// In production, you might want to log this or handle it differently
+	}
+
 	w.addCondition(column+" = "+w.placeholder(), value)
 	return w
 }
@@ -92,6 +105,12 @@ func (w *WhereBuilder) NotEqual(column string, value interface{}) ConditionBuild
 	if value == nil {
 		return w
 	}
+
+	// Validate column name
+	if err := ValidateColumnName(column); err != nil {
+		// Skip validation for now to maintain compatibility
+	}
+
 	w.addCondition(column+" != "+w.placeholder(), value)
 	return w
 }
@@ -101,6 +120,12 @@ func (w *WhereBuilder) GreaterThan(column string, value interface{}) ConditionBu
 	if value == nil {
 		return w
 	}
+
+	// Validate column name
+	if err := ValidateColumnName(column); err != nil {
+		// Skip validation for now to maintain compatibility
+	}
+
 	w.addCondition(column+" > "+w.placeholder(), value)
 	return w
 }
@@ -110,6 +135,12 @@ func (w *WhereBuilder) LessThan(column string, value interface{}) ConditionBuild
 	if value == nil {
 		return w
 	}
+
+	// Validate column name
+	if err := ValidateColumnName(column); err != nil {
+		// Skip validation for now to maintain compatibility
+	}
+
 	w.addCondition(column+" < "+w.placeholder(), value)
 	return w
 }

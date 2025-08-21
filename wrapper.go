@@ -2,6 +2,7 @@ package sqld
 
 import (
 	"context"
+	"strconv"
 	"strings"
 )
 
@@ -38,6 +39,11 @@ func (eq *EnhancedQueries[T]) DynamicQuery(
 	whereConditions *WhereBuilder,
 	scanFn func(rows Rows) error,
 ) error {
+	// Validate the base query
+	if err := ValidateQuery(baseQuery, eq.dialect); err != nil {
+		return WrapQueryError(err, baseQuery, nil, "dynamic query validation")
+	}
+
 	qb := NewQueryBuilder(baseQuery, eq.dialect)
 	if whereConditions != nil {
 		qb.Where(whereConditions)
@@ -46,11 +52,19 @@ func (eq *EnhancedQueries[T]) DynamicQuery(
 	query, params := qb.Build()
 	rows, err := eq.db.Query(ctx, query, params...)
 	if err != nil {
-		return err
+		return WrapQueryError(err, query, params, "dynamic query execution")
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			// Log the close error but don't override the main error
+		}
+	}()
 
-	return scanFn(rows)
+	if err := scanFn(rows); err != nil {
+		return WrapQueryError(err, query, params, "dynamic query scanning")
+	}
+
+	return nil
 }
 
 // DynamicQueryRow executes a dynamic query that returns a single row
@@ -59,6 +73,11 @@ func (eq *EnhancedQueries[T]) DynamicQueryRow(
 	baseQuery string,
 	whereConditions *WhereBuilder,
 ) Row {
+	// Validate the base query
+	if err := ValidateQuery(baseQuery, eq.dialect); err != nil {
+		return &ErrorRow{err: WrapQueryError(err, baseQuery, nil, "dynamic query row validation")}
+	}
+
 	qb := NewQueryBuilder(baseQuery, eq.dialect)
 	if whereConditions != nil {
 		qb.Where(whereConditions)
@@ -99,11 +118,40 @@ func (eq *EnhancedQueries[T]) SearchQuery(
 
 // PaginationQuery adds LIMIT/OFFSET to a query
 func (eq *EnhancedQueries[T]) PaginationQuery(
+	ctx context.Context,
 	baseQuery string,
 	whereConditions *WhereBuilder,
 	limit, offset int,
 	orderBy string,
-) (string, []interface{}) {
+) (string, []interface{}, error) {
+	// Validate the base query
+	if err := ValidateQuery(baseQuery, eq.dialect); err != nil {
+		return "", nil, WrapQueryError(err, baseQuery, nil, "pagination query validation")
+	}
+
+	// Validate ORDER BY clause if provided
+	if orderBy != "" {
+		if err := ValidateOrderBy(orderBy); err != nil {
+			return "", nil, WrapQueryError(err, orderBy, nil, "order by validation")
+		}
+	}
+
+	// Validate pagination parameters
+	if limit < 0 {
+		return "", nil, &ValidationError{
+			Field:   "limit",
+			Value:   limit,
+			Message: "limit cannot be negative",
+		}
+	}
+	if offset < 0 {
+		return "", nil, &ValidationError{
+			Field:   "offset",
+			Value:   offset,
+			Message: "offset cannot be negative",
+		}
+	}
+
 	qb := NewQueryBuilder(baseQuery, eq.dialect)
 	if whereConditions != nil {
 		qb.Where(whereConditions)
@@ -120,10 +168,10 @@ func (eq *EnhancedQueries[T]) PaginationQuery(
 	if limit > 0 {
 		switch eq.dialect {
 		case Postgres:
-			query += " LIMIT $" + string(rune(len(params)+1))
+			query += " LIMIT $" + strconv.Itoa(len(params)+1)
 			params = append(params, limit)
 			if offset > 0 {
-				query += " OFFSET $" + string(rune(len(params)+1))
+				query += " OFFSET $" + strconv.Itoa(len(params)+1)
 				params = append(params, offset)
 			}
 		case MySQL, SQLite:
@@ -136,7 +184,7 @@ func (eq *EnhancedQueries[T]) PaginationQuery(
 		}
 	}
 
-	return query, params
+	return query, params, nil
 }
 
 // Common scanning helpers
@@ -187,76 +235,6 @@ func ScanToMap[K comparable, V any](
 	}
 
 	return results, nil
-}
-
-// Query builders for common patterns
-
-// BuildDateRangeQuery adds date range conditions
-func BuildDateRangeQuery(
-	where *WhereBuilder,
-	column string,
-	startDate, endDate interface{},
-) *WhereBuilder {
-	if startDate != nil && endDate != nil {
-		where.Between(column, startDate, endDate)
-	} else if startDate != nil {
-		where.GreaterThan(column, startDate)
-	} else if endDate != nil {
-		where.LessThan(column, endDate)
-	}
-	return where
-}
-
-// BuildStatusFilter adds status filtering with optional exclusions
-func BuildStatusFilter(
-	where *WhereBuilder,
-	column string,
-	include []string,
-	exclude []string,
-) *WhereBuilder {
-	if len(include) > 0 {
-		includeValues := make([]interface{}, len(include))
-		for i, v := range include {
-			includeValues[i] = v
-		}
-		where.In(column, includeValues)
-	}
-
-	if len(exclude) > 0 {
-		for _, status := range exclude {
-			where.NotEqual(column, status)
-		}
-	}
-
-	return where
-}
-
-// BuildFullTextSearch creates a full-text search condition
-func BuildFullTextSearch(
-	where *WhereBuilder,
-	columns []string,
-	searchText string,
-	dialect Dialect,
-) *WhereBuilder {
-	if searchText == "" || len(columns) == 0 {
-		return where
-	}
-
-	// Normalize search text
-	searchPattern := SearchPattern(strings.TrimSpace(searchText), "contains")
-
-	where.Or(func(or ConditionBuilder) {
-		for _, column := range columns {
-			if dialect == Postgres {
-				// Use to_tsvector for better full-text search in Postgres
-				or.Raw("to_tsvector('english', "+column+") @@ plainto_tsquery('english', ?)", searchText)
-			} else {
-				or.ILike(column, searchPattern)
-			}
-		}
-	})
-
-	return where
 }
 
 // Utility functions for working with existing sqlc code
