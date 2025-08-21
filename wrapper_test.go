@@ -9,6 +9,57 @@ import (
 	"github.com/stretchr/testify/mock"
 )
 
+// Mock implementations for testing
+
+type MockDB struct {
+	mock.Mock
+}
+
+func (m *MockDB) Query(ctx context.Context, query string, args ...interface{}) (Rows, error) {
+	mockArgs := append([]interface{}{ctx, query}, args...)
+	ret := m.Called(mockArgs...)
+	return ret.Get(0).(Rows), ret.Error(1)
+}
+
+func (m *MockDB) QueryRow(ctx context.Context, query string, args ...interface{}) Row {
+	mockArgs := append([]interface{}{ctx, query}, args...)
+	ret := m.Called(mockArgs...)
+	return ret.Get(0).(Row)
+}
+
+type MockRows struct {
+	mock.Mock
+}
+
+func (m *MockRows) Close() error {
+	ret := m.Called()
+	return ret.Error(0)
+}
+
+func (m *MockRows) Next() bool {
+	ret := m.Called()
+	return ret.Bool(0)
+}
+
+func (m *MockRows) Scan(dest ...interface{}) error {
+	ret := m.Called(dest...)
+	return ret.Error(0)
+}
+
+func (m *MockRows) Err() error {
+	ret := m.Called()
+	return ret.Error(0)
+}
+
+type MockRow struct {
+	mock.Mock
+}
+
+func (m *MockRow) Scan(dest ...interface{}) error {
+	ret := m.Called(dest...)
+	return ret.Error(0)
+}
+
 func TestEnhancedQueries_DynamicQuery(t *testing.T) {
 	t.Run("successful query", func(t *testing.T) {
 		mockDB := &MockDB{}

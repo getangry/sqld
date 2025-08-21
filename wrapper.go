@@ -120,3 +120,13 @@ func (eq *EnhancedQueries[T]) DynamicQueryRow(
 	query, params := qb.Build()
 	return eq.db.QueryRow(ctx, query, params...)
 }
+
+// ErrorRow represents a row that had an error during creation
+type ErrorRow struct {
+	err error
+}
+
+// Scan returns the error
+func (r *ErrorRow) Scan(dest ...interface{}) error {
+	return r.err
+}
