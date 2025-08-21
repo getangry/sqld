@@ -2,11 +2,11 @@ package sqld
 
 import (
 	"context"
-	"strconv"
-	"strings"
 )
 
 // EnhancedQueries wraps any sqlc-generated Queries struct to add dynamic functionality
+// This is now primarily used for accessing the underlying database connection
+// Most functionality has moved to reflection-based functions
 type EnhancedQueries[T any] struct {
 	queries T
 	db      DBTX
@@ -32,7 +32,40 @@ func (eq *EnhancedQueries[T]) DB() DBTX {
 	return eq.db
 }
 
+// Dialect returns the database dialect
+func (eq *EnhancedQueries[T]) Dialect() Dialect {
+	return eq.dialect
+}
+
+// SearchWithReflection executes a search query with reflection-based scanning
+// This is the preferred method for dynamic queries
+func SearchWithReflection[R any](
+	ctx context.Context,
+	eq *EnhancedQueries[any],
+	sqlcQuery string,
+	where *WhereBuilder,
+	cursor *Cursor,
+	orderBy *OrderByBuilder,
+	limit int,
+	originalParams ...interface{},
+) ([]R, error) {
+	return QueryAndScanAllReflection[R](
+		ctx,
+		eq.db,
+		sqlcQuery,
+		eq.dialect,
+		where,
+		cursor,
+		orderBy,
+		limit,
+		originalParams...,
+	)
+}
+
+// LEGACY METHODS - Kept for backward compatibility but discouraged
+
 // DynamicQuery executes a dynamic query with the given conditions
+// DEPRECATED: Use QueryAndScanAllReflection instead
 func (eq *EnhancedQueries[T]) DynamicQuery(
 	ctx context.Context,
 	baseQuery string,
@@ -68,6 +101,7 @@ func (eq *EnhancedQueries[T]) DynamicQuery(
 }
 
 // DynamicQueryRow executes a dynamic query that returns a single row
+// DEPRECATED: Use QueryAndScanOneReflection instead
 func (eq *EnhancedQueries[T]) DynamicQueryRow(
 	ctx context.Context,
 	baseQuery string,
@@ -87,221 +121,12 @@ func (eq *EnhancedQueries[T]) DynamicQueryRow(
 	return eq.db.QueryRow(ctx, query, params...)
 }
 
-// Common query patterns
-
-// SearchQuery builds a search query with text search and filters
-func (eq *EnhancedQueries[T]) SearchQuery(
-	baseQuery string,
-	searchColumns []string,
-	searchText string,
-	filters *WhereBuilder,
-) *WhereBuilder {
-	where := NewWhereBuilder(eq.dialect)
-
-	// Add text search across multiple columns
-	if searchText != "" && len(searchColumns) > 0 {
-		where.Or(func(or ConditionBuilder) {
-			for _, column := range searchColumns {
-				or.ILike(column, SearchPattern(searchText, "contains"))
-			}
-		})
-	}
-
-	// Combine with additional filters
-	if filters != nil && filters.HasConditions() {
-		filterSQL, filterParams := filters.Build()
-		where.Raw(filterSQL, filterParams...)
-	}
-
-	return where
+// ErrorRow represents a row that had an error during creation
+type ErrorRow struct {
+	err error
 }
 
-// PaginationQuery adds LIMIT/OFFSET to a query
-func (eq *EnhancedQueries[T]) PaginationQuery(
-	ctx context.Context,
-	baseQuery string,
-	whereConditions *WhereBuilder,
-	limit, offset int,
-	orderBy string,
-) (string, []interface{}, error) {
-	// Validate the base query
-	if err := ValidateQuery(baseQuery, eq.dialect); err != nil {
-		return "", nil, WrapQueryError(err, baseQuery, nil, "pagination query validation")
-	}
-
-	// Validate ORDER BY clause if provided
-	if orderBy != "" {
-		if err := ValidateOrderBy(orderBy); err != nil {
-			return "", nil, WrapQueryError(err, orderBy, nil, "order by validation")
-		}
-	}
-
-	// Validate pagination parameters
-	if limit < 0 {
-		return "", nil, &ValidationError{
-			Field:   "limit",
-			Value:   limit,
-			Message: "limit cannot be negative",
-		}
-	}
-	if offset < 0 {
-		return "", nil, &ValidationError{
-			Field:   "offset",
-			Value:   offset,
-			Message: "offset cannot be negative",
-		}
-	}
-
-	qb := NewQueryBuilder(baseQuery, eq.dialect)
-	if whereConditions != nil {
-		qb.Where(whereConditions)
-	}
-
-	query, params := qb.Build()
-
-	// Add ORDER BY
-	if orderBy != "" {
-		query += " ORDER BY " + orderBy
-	}
-
-	// Add pagination
-	if limit > 0 {
-		switch eq.dialect {
-		case Postgres:
-			query += " LIMIT $" + strconv.Itoa(len(params)+1)
-			params = append(params, limit)
-			if offset > 0 {
-				query += " OFFSET $" + strconv.Itoa(len(params)+1)
-				params = append(params, offset)
-			}
-		case MySQL, SQLite:
-			query += " LIMIT ?"
-			params = append(params, limit)
-			if offset > 0 {
-				query += " OFFSET ?"
-				params = append(params, offset)
-			}
-		}
-	}
-
-	return query, params, nil
-}
-
-// Common scanning helpers
-
-// ScanToSlice scans query results into a slice using a provided scan function
-func ScanToSlice[R any](rows Rows, scanFn func(rows Rows) (R, error)) ([]R, error) {
-	var results []R
-
-	for rows.Next() {
-		item, err := scanFn(rows)
-		if err != nil {
-			return nil, err
-		}
-		results = append(results, item)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return results, nil
-}
-
-// ScanToMap scans query results into a map using key and value extraction functions
-func ScanToMap[K comparable, V any](
-	rows Rows,
-	keyFn func(rows Rows) (K, error),
-	valueFn func(rows Rows) (V, error),
-) (map[K]V, error) {
-	results := make(map[K]V)
-
-	for rows.Next() {
-		key, err := keyFn(rows)
-		if err != nil {
-			return nil, err
-		}
-
-		value, err := valueFn(rows)
-		if err != nil {
-			return nil, err
-		}
-
-		results[key] = value
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
-	return results, nil
-}
-
-// Utility functions for working with existing sqlc code
-
-// InjectWhereCondition injects WHERE conditions into an existing query
-func InjectWhereCondition(
-	originalQuery string,
-	conditions *WhereBuilder,
-	dialect Dialect,
-) (string, []interface{}) {
-	if conditions == nil || !conditions.HasConditions() {
-		return originalQuery, nil
-	}
-
-	whereSQL, params := conditions.Build()
-
-	// Find the insertion point
-	upperQuery := strings.ToUpper(originalQuery)
-
-	// Look for existing WHERE clause
-	whereIndex := strings.Index(upperQuery, "WHERE")
-	if whereIndex != -1 {
-		// Insert after existing WHERE
-		insertPoint := whereIndex + 5 // Length of "WHERE"
-		// Find the end of the existing WHERE condition
-		orderIndex := strings.Index(upperQuery[insertPoint:], "ORDER")
-		groupIndex := strings.Index(upperQuery[insertPoint:], "GROUP")
-		havingIndex := strings.Index(upperQuery[insertPoint:], "HAVING")
-		limitIndex := strings.Index(upperQuery[insertPoint:], "LIMIT")
-
-		// Find the earliest of these indices
-		insertAfter := len(originalQuery)
-		for _, idx := range []int{orderIndex, groupIndex, havingIndex, limitIndex} {
-			if idx != -1 && idx+insertPoint < insertAfter {
-				insertAfter = idx + insertPoint
-			}
-		}
-
-		// Insert the condition
-		beforePart := strings.TrimSpace(originalQuery[:insertAfter])
-		afterPart := strings.TrimSpace(originalQuery[insertAfter:])
-
-		if afterPart == "" {
-			newQuery := beforePart + " AND " + whereSQL
-			return newQuery, params
-		}
-		newQuery := beforePart + " AND " + whereSQL + " " + afterPart
-		return newQuery, params
-	}
-
-	// No existing WHERE clause, add one
-	// Find insertion point before ORDER BY, GROUP BY, etc.
-	insertPoint := len(originalQuery)
-	for _, keyword := range []string{"ORDER", "GROUP", "HAVING", "LIMIT"} {
-		if idx := strings.Index(upperQuery, keyword); idx != -1 && idx < insertPoint {
-			insertPoint = idx
-		}
-	}
-
-	beforePart := strings.TrimSpace(originalQuery[:insertPoint])
-	afterPart := strings.TrimSpace(originalQuery[insertPoint:])
-
-	if afterPart == "" {
-		// No keywords after
-		newQuery := beforePart + " WHERE " + whereSQL
-		return newQuery, params
-	}
-	newQuery := beforePart + " WHERE " + whereSQL + " " + afterPart
-	return newQuery, params
+// Scan returns the error
+func (r *ErrorRow) Scan(dest ...interface{}) error {
+	return r.err
 }

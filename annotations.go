@@ -77,12 +77,29 @@ func (ap *AnnotationProcessor) ProcessQuery(
 	sql = strings.Replace(sql, "/* sqld:cursor */", "", 1)
 
 	// Process orderby annotation
-	if orderBy != nil && orderBy.HasFields() && strings.Contains(sql, "/* sqld:orderby */") {
-		orderBySQL := ", " + orderBy.Build()
-		sql = strings.Replace(sql, "/* sqld:orderby */", orderBySQL, 1)
-	} else {
-		// Remove orderby annotation if no ordering
-		sql = strings.Replace(sql, "/* sqld:orderby */", "", 1)
+	if strings.Contains(sql, "/* sqld:orderby */") {
+		if orderBy != nil && orderBy.HasFields() {
+			// Replace the default ORDER BY with dynamic ordering
+			// Find the ORDER BY clause and replace everything before the annotation
+			// Use (?s) flag to make . match newlines, handle whitespace between ORDER BY and fields
+			re := regexp.MustCompile(`(?s)ORDER BY\s+([\s\S]*?)\s*/\* sqld:orderby \*/`)
+			if re.MatchString(sql) {
+				// Replace the default ORDER BY fields with dynamic ones
+				orderBySQL := orderBy.Build()
+				// Use ReplaceAllStringFunc to replace only the first occurrence
+				replaced := false
+				sql = re.ReplaceAllStringFunc(sql, func(match string) string {
+					if !replaced {
+						replaced = true
+						return "ORDER BY " + orderBySQL + " "
+					}
+					return match // Leave subsequent matches unchanged
+				})
+			}
+		} else {
+			// No dynamic ordering provided, just remove the annotation
+			sql = strings.Replace(sql, "/* sqld:orderby */", "", 1)
+		}
 	}
 
 	// Process limit annotation

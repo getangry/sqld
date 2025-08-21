@@ -138,14 +138,14 @@ func TestParseQueryString(t *testing.T) {
 	tests := []struct {
 		name        string
 		queryString string
-		config      *QueryFilterConfig
+		config      *Config
 		expected    []Filter
 		hasError    bool
 	}{
 		{
 			name:        "simple equality filter",
 			queryString: "name=john",
-			config:      DefaultQueryFilterConfig(),
+			config:      DefaultConfig(),
 			expected: []Filter{
 				{Field: "name", Operator: OpEq, Value: "john"},
 			},
@@ -153,7 +153,7 @@ func TestParseQueryString(t *testing.T) {
 		{
 			name:        "bracket syntax",
 			queryString: "age[gt]=18&status[eq]=active",
-			config:      DefaultQueryFilterConfig(),
+			config:      DefaultConfig(),
 			expected: []Filter{
 				{Field: "age", Operator: OpGt, Value: 18},
 				{Field: "status", Operator: OpEq, Value: "active"},
@@ -162,7 +162,7 @@ func TestParseQueryString(t *testing.T) {
 		{
 			name:        "underscore syntax",
 			queryString: "age_gt=18&email_contains=example",
-			config:      DefaultQueryFilterConfig(),
+			config:      DefaultConfig(),
 			expected: []Filter{
 				{Field: "age", Operator: OpGt, Value: 18},
 				{Field: "email", Operator: OpContains, Value: "example"},
@@ -171,7 +171,7 @@ func TestParseQueryString(t *testing.T) {
 		{
 			name:        "between operator",
 			queryString: "created_at[between]=2024-01-01,2024-12-31",
-			config:      DefaultQueryFilterConfig(),
+			config:      DefaultConfig(),
 			expected: []Filter{
 				{Field: "created_at", Operator: OpBetween, Value: []string{"2024-01-01", "2024-12-31"}},
 			},
@@ -179,7 +179,7 @@ func TestParseQueryString(t *testing.T) {
 		{
 			name:        "in operator",
 			queryString: "role[in]=admin,user,manager",
-			config:      DefaultQueryFilterConfig(),
+			config:      DefaultConfig(),
 			expected: []Filter{
 				{Field: "role", Operator: OpIn, Value: []string{"admin", "user", "manager"}},
 			},
@@ -187,7 +187,7 @@ func TestParseQueryString(t *testing.T) {
 		{
 			name:        "field mapping",
 			queryString: "user_name=john",
-			config: &QueryFilterConfig{
+			config: &Config{
 				AllowedFields:   map[string]bool{"name": true},
 				FieldMappings:   map[string]string{"user_name": "name"},
 				DefaultOperator: OpEq,
@@ -200,7 +200,7 @@ func TestParseQueryString(t *testing.T) {
 		{
 			name:        "disallowed field filtered out",
 			queryString: "name=john&secret=value",
-			config: &QueryFilterConfig{
+			config: &Config{
 				AllowedFields:   map[string]bool{"name": true},
 				DefaultOperator: OpEq,
 				MaxFilters:      10,
@@ -235,7 +235,7 @@ func TestParseRequest(t *testing.T) {
 	req, err := http.NewRequest("GET", "/users?name=john&age[gt]=18", nil)
 	require.NoError(t, err)
 
-	config := DefaultQueryFilterConfig()
+	config := DefaultConfig()
 	filters, err := ParseRequest(req, config)
 
 	assert.NoError(t, err)
@@ -337,7 +337,7 @@ func TestApplyFiltersToBuilder(t *testing.T) {
 func TestFromQueryString(t *testing.T) {
 	queryString := "name=john&age[gt]=18&status[in]=active,pending"
 
-	builder, err := FromQueryString(queryString, Postgres, DefaultQueryFilterConfig())
+	builder, err := FromQueryString(queryString, Postgres, DefaultConfig())
 	require.NoError(t, err)
 
 	sql, params := builder.Build()
@@ -377,7 +377,7 @@ func TestFromRequest(t *testing.T) {
 	req, err := http.NewRequest("GET", "/users?name=john&age[gte]=21&email[contains]=example", nil)
 	require.NoError(t, err)
 
-	config := DefaultQueryFilterConfig()
+	config := DefaultConfig()
 	builder, err := FromRequest(req, Postgres, config)
 	require.NoError(t, err)
 
@@ -410,16 +410,16 @@ func TestFromRequest(t *testing.T) {
 	assert.True(t, containsExample, "Should contain '%example%' parameter")
 }
 
-func TestQueryFilterConfig(t *testing.T) {
+func TestFilterConfig(t *testing.T) {
 	t.Run("default config", func(t *testing.T) {
-		config := DefaultQueryFilterConfig()
+		config := DefaultConfig()
 		assert.Equal(t, OpEq, config.DefaultOperator)
 		assert.Equal(t, "2006-01-02", config.DateLayout)
 		assert.Equal(t, 50, config.MaxFilters)
 	})
 
 	t.Run("max filters exceeded", func(t *testing.T) {
-		config := &QueryFilterConfig{
+		config := &Config{
 			MaxFilters:      2,
 			DefaultOperator: OpEq,
 		}
@@ -435,7 +435,7 @@ func TestQueryFilterConfig(t *testing.T) {
 	})
 
 	t.Run("allowed fields restriction", func(t *testing.T) {
-		config := &QueryFilterConfig{
+		config := &Config{
 			AllowedFields:   map[string]bool{"name": true, "email": true},
 			DefaultOperator: OpEq,
 			MaxFilters:      10,
@@ -456,7 +456,7 @@ func TestComplexQueryFiltering(t *testing.T) {
 	// Test a complex real-world scenario
 	queryString := "name[contains]=john&age[between]=18,65&status[in]=active,pending&created_at[after]=2024-01-01&deleted_at[isnull]=true"
 
-	config := &QueryFilterConfig{
+	config := &Config{
 		AllowedFields: map[string]bool{
 			"name":       true,
 			"age":        true,

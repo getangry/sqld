@@ -339,7 +339,7 @@ const SearchUsers = `-- name: SearchUsers :many
 SELECT id, name, email, age, status, role, country, verified, created_at, updated_at, deleted_at
 FROM users
 WHERE deleted_at IS NULL /* sqld:where */
-ORDER BY created_at DESC, id DESC /* sqld:cursor */ /* sqld:limit */
+ORDER BY created_at DESC, id DESC /* sqld:orderby */ /* sqld:cursor */ /* sqld:limit */
 `
 
 func (q *Queries) SearchUsers(ctx context.Context) ([]User, error) {
@@ -378,7 +378,7 @@ const SearchUsersByStatus = `-- name: SearchUsersByStatus :many
 SELECT id, name, email, age, status, role, country, verified, created_at, updated_at, deleted_at
 FROM users
 WHERE status = $1 AND deleted_at IS NULL /* sqld:where */
-ORDER BY created_at DESC, id DESC /* sqld:cursor */ /* sqld:limit */
+ORDER BY created_at DESC, id DESC /* sqld:orderby */ /* sqld:cursor */ /* sqld:limit */
 `
 
 func (q *Queries) SearchUsersByStatus(ctx context.Context, status pgtype.Text) ([]User, error) {
