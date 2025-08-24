@@ -2,7 +2,6 @@ package sqld
 
 import (
 	"context"
-	"database/sql/driver"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -102,8 +101,8 @@ func (rs *ReflectionScanner[T]) ScanOne(ctx context.Context, db DBTX, query stri
 
 // Generic helper functions that use reflection
 
-// QueryAndScanAllReflection executes a query and scans all results automatically using reflection
-func QueryAndScanAllReflection[T any](
+// QueryAll executes a query and scans all results automatically using reflection
+func QueryAll[T any](
 	ctx context.Context,
 	db DBTX,
 	sqlcQuery string,
@@ -125,8 +124,8 @@ func QueryAndScanAllReflection[T any](
 	return scanner.ScanAll(ctx, db, query, params...)
 }
 
-// QueryAndScanOneReflection executes a query and scans a single result automatically using reflection
-func QueryAndScanOneReflection[T any](
+// QueryOne executes a query and scans a single result automatically using reflection
+func QueryOne[T any](
 	ctx context.Context,
 	db DBTX,
 	sqlcQuery string,
@@ -146,8 +145,8 @@ func QueryAndScanOneReflection[T any](
 	return scanner.ScanOne(ctx, db, query, params...)
 }
 
-// QueryAndScanPaginatedReflection executes a paginated query with automatic scanning
-func QueryAndScanPaginatedReflection[T any](
+// QueryPaginated executes a paginated query with automatic scanning
+func QueryPaginated[T any](
 	ctx context.Context,
 	db DBTX,
 	sqlcQuery string,
@@ -160,7 +159,7 @@ func QueryAndScanPaginatedReflection[T any](
 	originalParams ...interface{},
 ) (*PaginatedResult[T], error) {
 	// Query for limit+1 to check for more results
-	items, err := QueryAndScanAllReflection[T](
+	items, err := QueryAll[T](
 		ctx, db, sqlcQuery, dialect, where, cursor, orderBy, limit+1, originalParams...,
 	)
 	if err != nil {
@@ -191,127 +190,6 @@ func QueryAndScanPaginatedReflection[T any](
 	return result, nil
 }
 
-// StructScanner is a convenience type for creating scanners with struct field mapping
-type StructScanner[T any] struct {
-	fieldOrder []string // Order of fields in SELECT statement
-	scanner    *ReflectionScanner[T]
-}
-
-// NewStructScanner creates a scanner with explicit field ordering
-// This is useful when the SELECT field order doesn't match struct field order
-func NewStructScanner[T any](fieldOrder []string) *StructScanner[T] {
-	return &StructScanner[T]{
-		fieldOrder: fieldOrder,
-		scanner:    NewReflectionScanner[T](),
-	}
-}
-
-// ScanRow scans with explicit field ordering
-func (ss *StructScanner[T]) ScanRow(rows Rows) (T, error) {
-	var result T
-	resultValue := reflect.ValueOf(&result).Elem()
-	resultType := resultValue.Type()
-
-	// Create scan destinations based on field order
-	scanDests := make([]interface{}, len(ss.fieldOrder))
-
-	for i, fieldName := range ss.fieldOrder {
-		_, found := resultType.FieldByName(fieldName)
-		if !found {
-			// Field not found in struct, use dummy destination
-			var dummy interface{}
-			scanDests[i] = &dummy
-			continue
-		}
-
-		// Get the actual field value
-		fieldValue := resultValue.FieldByName(fieldName)
-		if fieldValue.CanSet() {
-			scanDests[i] = fieldValue.Addr().Interface()
-		} else {
-			var dummy interface{}
-			scanDests[i] = &dummy
-		}
-	}
-
-	// Scan the row
-	if err := rows.Scan(scanDests...); err != nil {
-		return result, err
-	}
-
-	return result, nil
-}
-
-// Helper function to determine if a type implements sql.Scanner
-func implementsScanner(t reflect.Type) bool {
-	scannerType := reflect.TypeOf((*driver.Valuer)(nil)).Elem()
-	return t.Implements(scannerType) || reflect.PtrTo(t).Implements(scannerType)
-}
-
-// SmartReflectionScanner is an enhanced scanner that handles complex types better
-type SmartReflectionScanner[T any] struct {
-	structType   reflect.Type
-	fieldMapping map[string]int // Maps struct field names to positions
-}
-
-// NewSmartReflectionScanner creates an enhanced reflection scanner
-func NewSmartReflectionScanner[T any]() *SmartReflectionScanner[T] {
-	var zero T
-	structType := reflect.TypeOf(zero)
-
-	// Build field mapping
-	fieldMapping := make(map[string]int)
-	for i := 0; i < structType.NumField(); i++ {
-		field := structType.Field(i)
-		// Use db tag if available, otherwise use field name
-		dbTag := field.Tag.Get("db")
-		if dbTag != "" && dbTag != "-" {
-			fieldMapping[dbTag] = i
-		} else {
-			fieldMapping[field.Name] = i
-		}
-	}
-
-	return &SmartReflectionScanner[T]{
-		structType:   structType,
-		fieldMapping: fieldMapping,
-	}
-}
-
-// ScanRow scans with better type handling
-func (srs *SmartReflectionScanner[T]) ScanRow(rows Rows) (T, error) {
-	var result T
-	resultValue := reflect.ValueOf(&result).Elem()
-
-	// Get the number of fields to scan
-	numFields := srs.structType.NumField()
-	scanDests := make([]interface{}, numFields)
-
-	// Create scan destinations for each field
-	for i := 0; i < numFields; i++ {
-		field := resultValue.Field(i)
-		if field.CanSet() {
-			// Handle special types like pgtype
-			if field.Kind() == reflect.Interface {
-				// For interface{} fields, create a generic destination
-				scanDests[i] = field.Addr().Interface()
-			} else {
-				scanDests[i] = field.Addr().Interface()
-			}
-		} else {
-			// Skip unexported fields
-			var dummy interface{}
-			scanDests[i] = &dummy
-		}
-	}
-
-	// Scan the row
-	if err := rows.Scan(scanDests...); err != nil {
-		return result, err
-	}
-
-	return result, nil
-}
 
 // PaginatedResult wraps results with pagination metadata
 type PaginatedResult[T any] struct {
