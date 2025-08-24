@@ -21,8 +21,13 @@ ORDER BY created_at DESC /* sqld:orderby */ /* sqld:limit */;
 Execute with dynamic filters, sorting, and pagination:
 
 ```go
-users, err := sqld.QueryAll[db.User](
-    ctx, db, db.SearchUsers, sqld.Postgres,
+// Setup once
+q := sqld.New(db, sqld.Postgres)
+exec := sqld.NewExecutor[db.User](q)
+
+// Use everywhere - clean and simple!
+users, err := exec.QueryAll(
+    ctx, db.SearchUsers,
     where,   // ?name[contains]=john&age[gte]=18
     cursor,  // Pagination cursor
     orderBy, // ?sort=name:desc,created_at:asc
@@ -68,11 +73,16 @@ config := sqld.DefaultConfig().WithAllowedFields(map[string]bool{
 where, orderBy, err := sqld.FromRequestWithSort(r, sqld.Postgres, config)
 ```
 
-### 3. Execute queries
+### 3. Create executor and run queries
 
 ```go
-users, err := sqld.QueryAll[db.User](
-    ctx, database, db.GetUsers, sqld.Postgres,
+// Create typed executor once
+q := sqld.New(database, sqld.Postgres)
+exec := sqld.NewExecutor[db.User](q)
+
+// Execute queries cleanly
+users, err := exec.QueryAll(
+    ctx, db.GetUsers,
     where, nil, orderBy, 50,
 )
 ```
@@ -119,17 +129,27 @@ config := sqld.DefaultConfig().
 - `/* sqld:limit */` - Inject dynamic LIMIT
 - `/* sqld:cursor */` - Inject cursor-based pagination conditions
 
-## Core Functions
+## Core API
 
+### Setup
+```go
+// Create a queries wrapper with your database and dialect
+q := sqld.New(database, sqld.Postgres)
+
+// Create a typed executor for your model
+exec := sqld.NewExecutor[db.User](q)
+```
+
+### Executor Methods
 ```go
 // Query all results
-func QueryAll[T any](ctx, db, sqlcQuery, dialect, where, cursor, orderBy, limit, params...) ([]T, error)
+func (e *Executor[T]) QueryAll(ctx, sqlcQuery, where, cursor, orderBy, limit, params...) ([]T, error)
 
 // Query single result  
-func QueryOne[T any](ctx, db, sqlcQuery, dialect, where, params...) (T, error)
+func (e *Executor[T]) QueryOne(ctx, sqlcQuery, where, params...) (T, error)
 
 // Query with pagination metadata
-func QueryPaginated[T any](...) (*PaginatedResult[T], error)
+func (e *Executor[T]) QueryPaginated(ctx, sqlcQuery, where, cursor, orderBy, limit, getCursorFields, params...) (*PaginatedResult[T], error)
 ```
 
 ## Security Features
@@ -150,7 +170,18 @@ func QueryPaginated[T any](...) (*PaginatedResult[T], error)
 ## Example Integration
 
 ```go
-func ListUsers(w http.ResponseWriter, r *http.Request) {
+type UserHandler struct {
+    users *sqld.Executor[db.User]
+}
+
+func NewUserHandler(db sqld.DBTX) *UserHandler {
+    q := sqld.New(db, sqld.Postgres)
+    return &UserHandler{
+        users: sqld.NewExecutor[db.User](q),
+    }
+}
+
+func (h *UserHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
     config := getUsersConfig() // Reusable config
     
     where, orderBy, err := sqld.FromRequestWithSort(r, sqld.Postgres, config)
@@ -159,8 +190,9 @@ func ListUsers(w http.ResponseWriter, r *http.Request) {
         return
     }
     
-    users, err := sqld.QueryAll[db.User](
-        r.Context(), h.db, db.ListUsers, sqld.Postgres,
+    // Clean API - no need to pass database or dialect
+    users, err := h.users.QueryAll(
+        r.Context(), db.ListUsers,
         where, nil, orderBy, 50,
     )
     if err != nil {

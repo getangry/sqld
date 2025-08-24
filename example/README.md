@@ -83,7 +83,7 @@ psql -U your-user -d your-db -f sqlc/schema.sql
 
 ## Usage Patterns
 
-### Pattern 1: Basic Integration with Context and Error Handling
+### Pattern 1: Basic Integration with Type-Safe Executor
 
 ```go
 import (
@@ -91,6 +91,7 @@ import (
     "errors"
     "log"
     "github.com/getangry/sqld"
+    "github.com/getangry/sqld/pgxadapter"
 )
 
 // Your existing sqlc setup
@@ -98,31 +99,30 @@ ctx := context.Background()
 conn, _ := pgx.Connect(ctx, "postgres://...")
 queries := db.New(conn)
 
-// Enhance with dynamic capabilities and validation
-enhanced := sqld.NewEnhanced(queries, conn, sqld.Postgres)
+// Create sqld wrapper and typed executor
+adapter := pgxadapter.NewPgxAdapter(conn)
+q := sqld.New(adapter, sqld.Postgres)
+userExec := sqld.NewExecutor[db.User](q)
 
 // Use original SQLc methods
-user, err := enhanced.Queries().GetUser(ctx, 1)
+user, err := queries.GetUser(ctx, 1)
 if err != nil {
     log.Printf("Failed to get user: %v", err)
 }
 
-// Use dynamic queries with comprehensive error handling
+// Use typed executor for dynamic queries
 where := sqld.NewWhereBuilder(sqld.Postgres)
 where.Equal("status", "active").GreaterThan("age", 18)
 
-baseQuery := "SELECT id, name, email FROM users"
-err = enhanced.DynamicQuery(ctx, baseQuery, where, func(rows sqld.Rows) error {
-    for rows.Next() {
-        var id int
-        var name, email string
-        if err := rows.Scan(&id, &name, &email); err != nil {
-            return sqld.WrapQueryError(err, baseQuery, nil, "scanning user")
-        }
-        // Process user
-    }
-    return nil
-})
+// Clean API - no type parameters needed
+users, err := userExec.QueryAll(
+    ctx,
+    db.SearchUsers,  // SQLc-generated query
+    where,           // Dynamic filters
+    nil,             // No cursor
+    nil,             // No custom ordering
+    50,              // Limit
+)
 
 if err != nil {
     // Handle structured errors
@@ -157,46 +157,60 @@ config := &sqld.QueryFilterConfig{
 }
 
 // Parse from HTTP request
-where, err := sqld.FromRequest(r, sqld.Postgres, config)
+where, orderBy, err := sqld.FromRequestWithSort(r, sqld.Postgres, config)
 
-// Execute query
-baseQuery := "SELECT * FROM users"
-enhanced.DynamicQuery(ctx, baseQuery, where, scanFunc)
+// Create executor and execute query
+q := sqld.New(database, sqld.Postgres)
+exec := sqld.NewExecutor[db.User](q)
+users, err := exec.QueryAll(ctx, db.SearchUsers, where, nil, orderBy, 50)
 ```
 
-### Pattern 3: Transaction Support
+### Pattern 3: Service Layer with Typed Executors
 
 ```go
-import "database/sql"
+// Create a service with typed executors
+type UserService struct {
+    users *sqld.Executor[db.User]
+    posts *sqld.Executor[db.Post]
+    queries *db.Queries  // Original SQLc queries
+}
 
-// Create transaction-enabled wrapper
-stdDB := sqld.NewStandardDB(db, sqld.Postgres)
-txQueries := sqld.NewTransactionalQueries(queries, enhanced.DB(), sqld.Postgres, stdDB)
-
-// Execute operations within a transaction
-err = txQueries.WithTx(ctx, &sqld.TxOptions{
-    IsolationLevel: sql.LevelReadCommitted,
-}, func(ctx context.Context, queries *sqld.EnhancedQueries[*db.Queries]) error {
-    // Update user status
-    err := queries.Queries().UpdateUserStatus(ctx, db.UpdateUserStatusParams{
-        ID:     userID,
-        Status: "verified",
-    })
-    if err != nil {
-        return sqld.WrapQueryError(err, "", nil, "updating user status")
+func NewUserService(conn *pgx.Conn) *UserService {
+    queries := db.New(conn)
+    adapter := pgxadapter.NewPgxAdapter(conn)
+    q := sqld.New(adapter, sqld.Postgres)
+    
+    return &UserService{
+        users:   sqld.NewExecutor[db.User](q),
+        posts:   sqld.NewExecutor[db.Post](q),
+        queries: queries,
     }
-    
-    // Add to verified users with dynamic query
+}
+
+// Clean methods with no boilerplate
+func (s *UserService) SearchUsers(ctx context.Context, filters *sqld.WhereBuilder) ([]db.User, error) {
+    return s.users.QueryAll(
+        ctx,
+        db.SearchUsers,  // SQLc query with annotations
+        filters,
+        nil,  // No cursor
+        nil,  // Default ordering
+        100,  // Limit
+    )
+}
+
+func (s *UserService) GetUserPosts(ctx context.Context, userID int32) ([]db.Post, error) {
     where := sqld.NewWhereBuilder(sqld.Postgres)
-    where.Equal("id", userID)
+    where.Equal("user_id", userID)
     
-    insertQuery := "INSERT INTO verified_users (user_id) VALUES ($1)"
-    err = queries.DynamicQuery(ctx, insertQuery, nil, func(rows sqld.Rows) error {
-        // Process results if needed
-        return nil
-    })
-    if err != nil {
-        return err // Automatic rollback on error
+    return s.posts.QueryAll(
+        ctx,
+        db.GetPostsByUser,
+        where,
+        nil,
+        nil,
+        50,
+    )
     }
     
     // Transaction commits automatically if no error
@@ -218,8 +232,8 @@ user, err := enhanced.Queries().GetUserByEmail(ctx, "john@example.com")
 where := sqld.NewWhereBuilder(sqld.Postgres)
 where.Like("name", "%john%").In("status", []interface{}{"active", "pending"})
 
-baseQuery := "SELECT * FROM users" 
-enhanced.DynamicQuery(ctx, baseQuery, where, scanFunc)
+// Use the executor for clean API
+users, err := exec.QueryAll(ctx, db.SearchUsers, where, nil, nil, 100)
 ```
 
 ## Supported Query Operators
@@ -387,8 +401,8 @@ func SearchUsers(w http.ResponseWriter, r *http.Request) {
     // Add business logic filters
     where.IsNull("deleted_at")
     
-    baseQuery := "SELECT * FROM users"
-    enhanced.DynamicQuery(r.Context(), baseQuery, where, scanFunc)
+    // Use executor for clean query execution
+    users, err := userExec.QueryAll(r.Context(), db.SearchUsers, where, nil, nil, 100)
 }
 ```
 

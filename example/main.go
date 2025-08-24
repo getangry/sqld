@@ -24,8 +24,8 @@ import (
 // - SQLc provides compile-time safety and optimal performance for static queries
 // - sqld adds dynamic filtering capabilities with automatic reflection-based scanning
 type UserService struct {
-	enhanced *sqld.EnhancedQueries[*db.Queries]
-	queries  *db.Queries
+	users   *sqld.Executor[db.User]  // Typed executor for User queries
+	queries *db.Queries              // Original SQLc queries for fallback
 }
 
 // NewUserService creates a new user service with SQLc integration
@@ -33,11 +33,11 @@ func NewUserService(conn *pgx.Conn) *UserService {
 	queries := db.New(conn)
 	// Use adapter to make pgx.Conn compatible with sqld.DBTX
 	adapter := pgxadapter.NewPgxAdapter(conn)
-	enhanced := sqld.NewEnhanced(queries, adapter, sqld.Postgres)
-
+	sqldQueries := sqld.New(adapter, sqld.Postgres)
+	
 	return &UserService{
-		enhanced: enhanced,
-		queries:  queries,
+		users:   sqld.NewExecutor[db.User](sqldQueries),
+		queries: queries,
 	}
 }
 
@@ -111,7 +111,7 @@ type SearchUsersResponse struct {
 // Key improvements:
 // 1. No manual scanning code - uses reflection automatically
 // 2. SQLc queries with annotations for dynamic enhancement
-// 3. One-liner execution with QueryAndScanAllReflection
+// 3. One-liner execution with QueryAll
 // 4. Maintains all SQLc type safety and compile-time verification
 func (s *UserService) SearchUsers(c *gin.Context) {
 	ctx := c.Request.Context()
@@ -147,11 +147,9 @@ func (s *UserService) SearchUsers(c *gin.Context) {
 
 	if !hasFilters {
 		// No filters - use SQLc SearchUsers with automatic scanning
-		users, err := sqld.QueryAndScanAllReflection[db.User](
+		users, err := s.users.QueryAll(
 			ctx,
-			s.enhanced.DB(),
 			db.SearchUsers,
-			sqld.Postgres,
 			nil,     // No additional filters
 			cursor,  // Cursor for pagination
 			nil,     // No custom ordering
@@ -207,11 +205,9 @@ func (s *UserService) SearchUsers(c *gin.Context) {
 	}
 
 	// Execute with dynamic filters and sorting using automatic reflection-based scanning
-	users, err := sqld.QueryAndScanAllReflection[db.User](
+	users, err := s.users.QueryAll(
 		ctx,
-		s.enhanced.DB(),
 		db.SearchUsers,
-		sqld.Postgres,
 		where,   // Dynamic filters from query parameters
 		cursor,  // Cursor for pagination
 		orderBy, // Dynamic sorting from query parameters
@@ -446,11 +442,9 @@ func (s *UserService) SearchUsersSorted(c *gin.Context) {
 	}
 
 	// Execute with sorting only (no filters)
-	users, err := sqld.QueryAndScanAllReflection[db.User](
+	users, err := s.users.QueryAll(
 		ctx,
-		s.enhanced.DB(),
 		db.SearchUsers,
-		sqld.Postgres,
 		nil,     // No filters
 		nil,     // No cursor
 		orderBy, // Dynamic sorting
