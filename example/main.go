@@ -61,8 +61,8 @@ func getUsersConfig() *sqld.Config {
 // - SQLc provides compile-time safety and optimal performance for static queries
 // - sqld adds dynamic filtering capabilities with automatic reflection-based scanning
 type UserService struct {
-	users   *sqld.Executor[db.User]  // Typed executor for User queries
-	queries *db.Queries              // Original SQLc queries for fallback
+	users   *sqld.Executor[db.User] // Typed executor for User queries
+	queries *db.Queries             // Original SQLc queries for fallback
 }
 
 // NewUserService creates a new user service with SQLc integration
@@ -71,7 +71,7 @@ func NewUserService(conn *pgx.Conn) *UserService {
 	// Use adapter to make pgx.Conn compatible with sqld.DBTX
 	adapter := pgxadapter.NewPgxAdapter(conn)
 	sqldQueries := sqld.New(adapter, sqld.Postgres)
-	
+
 	return &UserService{
 		users:   sqld.NewExecutor[db.User](sqldQueries),
 		queries: queries,
@@ -491,21 +491,21 @@ func SetupRoutes(userService *UserService) *gin.Engine {
 			c.Next()
 			return
 		}
-		
+
 		if strings.Contains(acceptHeader, sqld.SchemaContentType) {
 			// Generate and return schema
 			schema := sqld.GenerateSchema(config)
-			
+
 			// Set response headers
 			c.Header("Content-Type", sqld.SchemaContentType+"+json")
 			c.Header("Cache-Control", "public, max-age=3600")
-			
+
 			// Return schema instead of processing normal request
 			c.JSON(http.StatusOK, schema)
 			c.Abort()
 			return
 		}
-		
+
 		c.Next()
 	}
 

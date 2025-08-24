@@ -190,7 +190,6 @@ func QueryPaginated[T any](
 	return result, nil
 }
 
-
 // PaginatedResult wraps results with pagination metadata
 type PaginatedResult[T any] struct {
 	Items      []T     `json:"items"`
