@@ -73,9 +73,9 @@ func (r *ErrorRow) Scan(dest ...interface{}) error {
 func TestQueries(t *testing.T) {
 	t.Run("New creates wrapper correctly", func(t *testing.T) {
 		mockDB := &MockDB{}
-		
+
 		q := New(mockDB, Postgres)
-		
+
 		assert.NotNil(t, q)
 		assert.Equal(t, mockDB, q.DB())
 		assert.Equal(t, Postgres, q.Dialect())

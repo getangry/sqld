@@ -14,12 +14,12 @@ import (
 func TestGenerateSchema(t *testing.T) {
 	config := DefaultConfig().
 		WithAllowedFields(map[string]bool{
-			"id":         true,
-			"name":       true,
-			"email":      true,
-			"age":        true,
-			"status":     true,
-			"created_at": true,
+			"id":          true,
+			"name":        true,
+			"email":       true,
+			"age":         true,
+			"status":      true,
+			"created_at":  true,
 			"is_verified": true,
 		}).
 		WithFieldMappings(map[string]string{
@@ -158,7 +158,7 @@ func TestSchemaMiddleware(t *testing.T) {
 
 		assert.False(t, handlerCalled)
 		assert.Equal(t, http.StatusOK, w.Code)
-		
+
 		var schema QuerySchema
 		err := json.NewDecoder(w.Body).Decode(&schema)
 		require.NoError(t, err)
@@ -242,7 +242,7 @@ func TestWithSchema(t *testing.T) {
 		wrappedHandler(w, req)
 
 		assert.Equal(t, http.StatusOK, w.Code)
-		
+
 		var schema QuerySchema
 		err := json.NewDecoder(w.Body).Decode(&schema)
 		require.NoError(t, err)
@@ -291,7 +291,7 @@ func TestFieldTypeDetection(t *testing.T) {
 		t.Run(tt.description, func(t *testing.T) {
 			config := DefaultConfig().WithAllowedFields(map[string]bool{tt.fieldName: true})
 			schema := GenerateSchema(config)
-			
+
 			require.Len(t, schema.Fields, 1)
 			assert.Equal(t, tt.expectedType, schema.Fields[0].Type, "Field %s should be type %s", tt.fieldName, tt.expectedType)
 		})
@@ -306,10 +306,10 @@ func TestSchemaExamples(t *testing.T) {
 	t.Run("with name and age fields only", func(t *testing.T) {
 		config := DefaultConfig().WithAllowedFields(map[string]bool{"name": true, "age": true})
 		schema := GenerateSchema(config)
-		
+
 		// Should only generate age example since name+status example requires status field
 		require.Len(t, schema.Examples, 1)
-		
+
 		// Should be the age range example
 		example := schema.Examples[0]
 		assert.Contains(t, example.Query, "age[gte]=18")
@@ -319,29 +319,29 @@ func TestSchemaExamples(t *testing.T) {
 
 	t.Run("with all common fields", func(t *testing.T) {
 		config := DefaultConfig().WithAllowedFields(map[string]bool{
-			"name": true, 
-			"age": true, 
-			"status": true, 
+			"name":       true,
+			"age":        true,
+			"status":     true,
 			"created_at": true,
 		})
 		schema := GenerateSchema(config)
-		
+
 		// Should generate all 3 examples when all required fields are present
 		require.Len(t, schema.Examples, 3)
-		
+
 		examples := schema.Examples
-		
+
 		// First example should be about name contains + status
 		assert.Contains(t, examples[0].Query, "name[contains]=john")
 		assert.Contains(t, examples[0].Query, "status=active")
 		assert.Contains(t, examples[0].Description, "john")
-		
+
 		// Second example should be about age range + sorting
 		assert.Contains(t, examples[1].Query, "age[gte]=18")
 		assert.Contains(t, examples[1].Query, "age[lt]=65")
 		assert.Contains(t, examples[1].Query, "sort=-created_at")
 		assert.Contains(t, examples[1].Description, "aged")
-		
+
 		// Third example should be about status and sorting
 		assert.Contains(t, examples[2].Query, "status[in]=active,verified")
 		assert.Contains(t, examples[2].Query, "sort=name:asc,created_at:desc")
@@ -351,10 +351,10 @@ func TestSchemaExamples(t *testing.T) {
 	t.Run("with no common fields generates fallback", func(t *testing.T) {
 		config := DefaultConfig().WithAllowedFields(map[string]bool{"custom_field": true})
 		schema := GenerateSchema(config)
-		
+
 		// Should generate fallback example
 		require.Len(t, schema.Examples, 1)
-		
+
 		example := schema.Examples[0]
 		assert.Contains(t, example.Query, "custom_field[eq]=value")
 		assert.Contains(t, example.Description, "Filter by custom_field")
@@ -366,19 +366,19 @@ func TestMiddlewareErrorHandling(t *testing.T) {
 	// (though GenerateSchema is pretty robust)
 	config := DefaultConfig() // Empty config should still work
 	middleware := SchemaMiddleware(config)
-	
+
 	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
-	
+
 	req := httptest.NewRequest("GET", "/test", nil)
 	req.Header.Set("Accept", SchemaContentType)
 	w := httptest.NewRecorder()
-	
+
 	handler.ServeHTTP(w, req)
-	
+
 	assert.Equal(t, http.StatusOK, w.Code)
-	
+
 	var schema QuerySchema
 	err := json.NewDecoder(w.Body).Decode(&schema)
 	require.NoError(t, err)

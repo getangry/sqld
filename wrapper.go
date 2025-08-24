@@ -59,7 +59,7 @@ func (q *Queries) Dialect() Dialect {
 //	// Setup once in your handler/service
 //	q := sqld.New(database, sqld.Postgres)
 //	userExec := sqld.NewExecutor[db.User](q)
-//	
+//
 //	// Use throughout your code - clean and simple
 //	users, err := userExec.QueryAll(ctx, db.SearchUsers, where, nil, orderBy, 50)
 //	user, err := userExec.QueryOne(ctx, db.GetUser, whereClause)
@@ -109,4 +109,3 @@ func QueryOneWith[T any](ctx context.Context, q *Queries, sqlcQuery string, wher
 func QueryPaginatedWith[T any](ctx context.Context, q *Queries, sqlcQuery string, where *WhereBuilder, cursor *Cursor, orderBy *OrderByBuilder, limit int, getCursorFields func(T) (interface{}, interface{}), originalParams ...interface{}) (*PaginatedResult[T], error) {
 	return QueryPaginated[T](ctx, q.db, sqlcQuery, q.dialect, where, cursor, orderBy, limit, getCursorFields, originalParams...)
 }
-
