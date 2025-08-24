@@ -48,6 +48,7 @@ Requirements: Go 1.21+ and [SQLc](https://sqlc.dev)
 - **Zero rewrites** - Works with existing SQLc code
 - **HTTP-first** - Parse URL query params: `?name[contains]=john&age[gte]=18&sort=name:desc`
 - **Type-safe** - Maintains compile-time safety with runtime flexibility
+- **Schema discovery** - API clients can discover filterable fields and operators
 - **Security built-in** - Field whitelisting, parameter validation, SQL injection prevention
 - **Multiple databases** - PostgreSQL, MySQL, SQLite support
 
@@ -152,6 +153,61 @@ func (e *Executor[T]) QueryOne(ctx, sqlcQuery, where, params...) (T, error)
 func (e *Executor[T]) QueryPaginated(ctx, sqlcQuery, where, cursor, orderBy, limit, getCursorFields, params...) (*PaginatedResult[T], error)
 ```
 
+## Schema Discovery
+
+sqld includes built-in API schema discovery that allows clients to dynamically discover which fields can be filtered and sorted, along with their available operators.
+
+### Usage
+
+Add the schema middleware to your routes:
+
+```go
+// Use sqld.SchemaMiddleware
+router.Use(sqld.SchemaMiddleware(config))
+
+// Or wrap individual handlers
+handler := sqld.WithSchema(config, myHandler)
+```
+
+### Client Discovery
+
+Request schema using the special content type:
+
+```bash
+# Discover available fields and operators
+curl -H "Accept: application/vnd.surf+schema" http://localhost:8080/users
+
+# Response includes:
+{
+  "fields": [
+    {
+      "name": "name",
+      "type": "string", 
+      "filterable": true,
+      "sortable": true,
+      "operators": ["eq", "ne", "contains", "startswith", ...]
+    },
+    {
+      "name": "age",
+      "type": "number",
+      "operators": ["eq", "gt", "gte", "between", ...]
+    }
+  ],
+  "max_filters": 10,
+  "max_sort_fields": 3
+}
+```
+
+### Field Type Detection
+
+sqld automatically detects field types based on naming patterns:
+
+- **Integer**: `id`, `*_id` → `["eq", "gt", "gte", "in", ...]`
+- **DateTime**: `*_at`, `*date*`, `*time*` → `["eq", "gt", "between", ...]` 
+- **Boolean**: `is_*`, `has_*`, `verified`, `active` → `["eq", "ne"]`
+- **Number**: `age`, `*count*`, `*amount*`, `*price*` → `["eq", "gt", "between", ...]`
+- **String**: Everything else → `["eq", "contains", "like", ...]`
+
 ## Security Features
 
 - **Field whitelisting** - Only allow specified fields
@@ -181,6 +237,14 @@ func NewUserHandler(db sqld.DBTX) *UserHandler {
     }
 }
 
+// Add schema discovery middleware
+func (h *UserHandler) setupRoutes() {
+    config := getUsersConfig() // Reusable config
+    
+    router.Use(sqld.SchemaMiddleware(config)) // Enable schema discovery
+    router.HandleFunc("/users", h.ListUsers)
+}
+
 func (h *UserHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
     config := getUsersConfig() // Reusable config
     
@@ -206,9 +270,10 @@ func (h *UserHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 
 Now supports:
 - `GET /users` - List all users
-- `GET /users?name[contains]=john` - Filter by name
+- `GET /users?name[contains]=john` - Filter by name  
 - `GET /users?status=active&sort=name:asc` - Filter and sort
 - `GET /users?age[gte]=18&department[in]=eng,product` - Complex filtering
+- `curl -H "Accept: application/vnd.surf+schema" /users` - Discover available fields
 
 ## License
 

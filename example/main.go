@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/getangry/sqld"
@@ -18,6 +19,42 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 )
+
+// getUsersConfig returns the shared configuration for user filtering and sorting
+// This configuration is used by both the API handlers and the schema discovery middleware
+func getUsersConfig() *sqld.Config {
+	return sqld.DefaultConfig().
+		WithAllowedFields(map[string]bool{
+			"id":         true,
+			"name":       true,
+			"email":      true,
+			"age":        true,
+			"status":     true,
+			"role":       true,
+			"country":    true,
+			"verified":   true,
+			"created_at": true,
+			"updated_at": true,
+		}).
+		WithFieldMappings(map[string]string{
+			"user_name":    "name",
+			"user_email":   "email",
+			"signup_date":  "created_at",
+			"signup":       "created_at",
+			"last_update":  "updated_at",
+			"is_verified":  "verified",
+			"user_status":  "status",
+			"user_country": "country",
+		}).
+		WithDefaultOperator(sqld.OpEq).
+		WithDateLayout("2006-01-02").
+		WithMaxFilters(20).
+		WithMaxSortFields(3).
+		WithDefaultSort([]sqld.SortField{
+			{Field: "created_at", Direction: sqld.SortDesc},
+			{Field: "id", Direction: sqld.SortAsc},
+		})
+}
 
 // UserService demonstrates how to integrate sqld with SQLc-generated code
 // This showcases the best of both worlds:
@@ -164,38 +201,8 @@ func (s *UserService) SearchUsers(c *gin.Context) {
 		return
 	}
 
-	// Complex filters and sorting - unified configuration
-	config := sqld.DefaultConfig().
-		WithAllowedFields(map[string]bool{
-			"id":         true,
-			"name":       true,
-			"email":      true,
-			"age":        true,
-			"status":     true,
-			"role":       true,
-			"country":    true,
-			"verified":   true,
-			"created_at": true,
-			"updated_at": true,
-		}).
-		WithFieldMappings(map[string]string{
-			"user_name":    "name",
-			"user_email":   "email",
-			"signup_date":  "created_at",
-			"signup":       "created_at",
-			"last_update":  "updated_at",
-			"is_verified":  "verified",
-			"user_status":  "status",
-			"user_country": "country",
-		}).
-		WithDefaultOperator(sqld.OpEq).
-		WithDateLayout("2006-01-02").
-		WithMaxFilters(20).
-		WithMaxSortFields(3).
-		WithDefaultSort([]sqld.SortField{
-			{Field: "created_at", Direction: sqld.SortDesc},
-			{Field: "id", Direction: sqld.SortAsc},
-		})
+	// Complex filters and sorting - use shared configuration
+	config := getUsersConfig()
 
 	// Parse filters and sorting from query parameters
 	where, orderBy, err := sqld.FromRequestWithSort(c.Request, sqld.Postgres, config)
@@ -473,8 +480,38 @@ func (s *UserService) SearchUsersSorted(c *gin.Context) {
 func SetupRoutes(userService *UserService) *gin.Engine {
 	r := gin.Default()
 
-	// User routes
+	// Use shared config for schema discovery and filtering
+	config := getUsersConfig()
+
+	// Convert gin middleware to http middleware wrapper
+	schemaMiddleware := func(c *gin.Context) {
+		// Check if client wants schema
+		acceptHeader := c.GetHeader("Accept")
+		if acceptHeader == "" {
+			c.Next()
+			return
+		}
+		
+		if strings.Contains(acceptHeader, sqld.SchemaContentType) {
+			// Generate and return schema
+			schema := sqld.GenerateSchema(config)
+			
+			// Set response headers
+			c.Header("Content-Type", sqld.SchemaContentType+"+json")
+			c.Header("Cache-Control", "public, max-age=3600")
+			
+			// Return schema instead of processing normal request
+			c.JSON(http.StatusOK, schema)
+			c.Abort()
+			return
+		}
+		
+		c.Next()
+	}
+
+	// User routes with schema discovery middleware
 	users := r.Group("/users")
+	users.Use(schemaMiddleware) // Apply schema middleware to all user routes
 	{
 		users.GET("", userService.SearchUsers)                    // GET /users?name=john&age[gt]=18&status[in]=active,verified&sort=name:desc
 		users.GET("/sorted", userService.SearchUsersSorted)       // GET /users/sorted?sort=name:desc,age:asc (sorting examples)
@@ -529,6 +566,11 @@ func main() {
 	fmt.Println("=== SORTING-FOCUSED ENDPOINT ===")
 	fmt.Println("  GET /users/sorted - Dedicated sorting endpoint with examples in response")
 	fmt.Println("  GET /users/sorted?sort=name:desc,age:asc - Try different sorting combinations")
+	fmt.Println()
+	fmt.Println("=== SCHEMA DISCOVERY ===")
+	fmt.Println("  curl -H 'Accept: application/vnd.surf+schema' http://localhost:8080/users - Get filterable/sortable fields schema")
+	fmt.Println("  curl -H 'Accept: application/vnd.surf+schema+json' http://localhost:8080/users - Get schema with explicit JSON")
+	fmt.Println("  Try with any /users endpoint to discover field capabilities")
 	fmt.Println()
 	fmt.Println("=== OTHER ENDPOINTS ===")
 	fmt.Println("  GET /users/123 - Get user by ID")
